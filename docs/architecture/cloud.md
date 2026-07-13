@@ -5,7 +5,58 @@
 
 ---
 
+
 ## 1. Visão Geral da Infraestrutura AWS
+
+```mermaid
+flowchart TB
+    USER(["👤 Comerciante"])
+
+    subgraph EDGE["Edge"]
+        R53["Route 53"]
+        WAF["AWS WAF"]
+        ALB["ALB + ACM"]
+    end
+
+    subgraph ECS["ECS Fargate  —  Private App Subnet"]
+        GW["API Gateway\n.NET 8 / YARP"]
+        ENT["Entries Service\n.NET 8"]
+        CON["Consolidated Service\n.NET 8"]
+    end
+
+    subgraph DATA["Managed Data  —  Private Data Subnet"]
+        RDS_E[("RDS PostgreSQL\ncashflow_entries")]
+        RDS_C[("RDS PostgreSQL\ncashflow_consolidated")]
+        MQ[["Amazon MQ\nRabbitMQ"]]
+        REDIS[("ElastiCache\nRedis")]
+    end
+
+    subgraph OBS["Observabilidade"]
+        CW["CloudWatch\nLogs + Alarms"]
+        XRAY["X-Ray\nTracing"]
+    end
+
+    subgraph SEC["Segurança"]
+        SM["Secrets Manager"]
+        KMS["KMS"]
+    end
+
+    USER -->|HTTPS| R53 --> WAF --> ALB --> GW
+    GW -->|proxy| ENT
+    GW -->|proxy| CON
+    ENT --> RDS_E
+    ENT -->|publish| MQ
+    MQ -->|consume| CON
+    CON --> RDS_C
+    CON --> REDIS
+    ECS -->|logs/traces| OBS
+    ECS -->|secrets/keys| SEC
+    DATA -.->|encrypted| KMS
+```
+
+---
+
+## 1.1 Visão Geral da Infraestrutura AWS
 
 ```mermaid
 flowchart TB
