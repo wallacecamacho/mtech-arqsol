@@ -71,16 +71,16 @@ Result<T> → Controller traduz para HTTP response
 ## Consequências
 
 **Positivo:**
-- ✅ Handlers são unitários puro: testados com mocks de `IEntryRepository` e `IEventBus` sem HTTP
-- ✅ `ValidationPipelineBehavior` é transversal: toda validação acontece antes do handler sem código duplicado
-- ✅ Adicionar logging ou auditoria = adicionar um novo `IPipelineBehavior`, sem tocar handlers
-- ✅ `Result<T>` elimina exceções para controle de fluxo (erros de validação retornam 400, não 500)
-- ✅ Controllers são finos: nenhuma lógica de negócio, apenas tradução HTTP
+- [OK] Handlers são unitários puro: testados com mocks de `IEntryRepository` e `IEventBus` sem HTTP
+- [OK] `ValidationPipelineBehavior` é transversal: toda validação acontece antes do handler sem código duplicado
+- [OK] Adicionar logging ou auditoria = adicionar um novo `IPipelineBehavior`, sem tocar handlers
+- [OK] `Result<T>` elimina exceções para controle de fluxo (erros de validação retornam 400, não 500)
+- [OK] Controllers são finos: nenhuma lógica de negócio, apenas tradução HTTP
 
 **Negativo / Trade-offs:**
-- ⚠️ Mais arquivos para operações simples (Command + Handler + Validator = 3 classes)
-- ⚠️ MediatR é um mediator global in-process — não adequado para comunicação entre serviços (para isso usamos RabbitMQ, ADR-002)
-- ⚠️ CQRS sem bancos separados (read/write): a otimização de read replica pode ser adicionada futuramente sem mudar a arquitetura
+- [!] Mais arquivos para operações simples (Command + Handler + Validator = 3 classes)
+- [!] MediatR é um mediator global in-process — não adequado para comunicação entre serviços (para isso usamos RabbitMQ, ADR-002)
+- [!] CQRS sem bancos separados (read/write): a otimização de read replica pode ser adicionada futuramente sem mudar a arquitetura
 
 ## Alternativas Rejeitadas
 

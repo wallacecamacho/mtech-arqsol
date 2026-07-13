@@ -66,15 +66,15 @@ Usar **JWT (JSON Web Tokens)** com assinatura **HMAC-SHA256** (algoritmo `HS256`
 ## Consequências
 
 **Positivo:**
-- ✅ Stateless: qualquer instância do Gateway valida qualquer token sem estado compartilhado
-- ✅ `merchantId` vem do token assinado — impossível de forjar sem a chave
-- ✅ Defense in depth: comprometimento do Gateway não bypassa validação nos serviços
-- ✅ Zero dependência externa no MVP
+- [OK] Stateless: qualquer instância do Gateway valida qualquer token sem estado compartilhado
+- [OK] `merchantId` vem do token assinado — impossível de forjar sem a chave
+- [OK] Defense in depth: comprometimento do Gateway não bypassa validação nos serviços
+- [OK] Zero dependência externa no MVP
 
 **Negativo / Trade-offs:**
-- ⚠️ Revogação imediata não é possível sem blacklist (token válido por até 8h após compromisso)
-- ⚠️ Chave simétrica compartilhada: se vazada, todos os tokens podem ser forjados
-- ⚠️ Endpoint `/api/auth/token` é demo — não é prod-ready (aceita qualquer senha)
+- [!] Revogação imediata não é possível sem blacklist (token válido por até 8h após compromisso)
+- [!] Chave simétrica compartilhada: se vazada, todos os tokens podem ser forjados
+- [!] Endpoint `/api/auth/token` é demo — não é prod-ready (aceita qualquer senha)
 
 ## Recomendação para Produção
 

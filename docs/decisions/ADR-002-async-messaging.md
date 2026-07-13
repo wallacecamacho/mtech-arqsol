@@ -24,13 +24,13 @@ O requisito não-funcional central é: *"O serviço de controle de lançamentos 
 
 | Aspecto | HTTP Síncrono | **RabbitMQ + MassTransit** | Apache Kafka |
 |---|---|---|---|
-| Disponibilidade do Entries | ❌ Degradada se Consolidated cair | ✅ Totalmente independente | ✅ Totalmente independente |
-| Consistência do consolidado | ✅ Imediata | ⚠️ Eventual (~segundos) | ⚠️ Eventual |
-| Retry automático | ❌ Manual / circuit breaker | ✅ Nativo via MassTransit | ✅ Nativo |
-| Dead-letter queue | ❌ Não nativo | ✅ Nativo | ✅ Nativo |
-| Complexidade operacional | ✅ Mínima | ⚠️ Média | ❌ Alta |
-| Self-hosted portável | — | ✅ Sim | ⚠️ Requer Zookeeper/KRaft |
-| Volume atual | — | ✅ Adequado | ⚠️ Overkill |
+| Disponibilidade do Entries | [x] Degradada se Consolidated cair | [OK] Totalmente independente | [OK] Totalmente independente |
+| Consistência do consolidado | [OK] Imediata | [!] Eventual (~segundos) | [!] Eventual |
+| Retry automático | [x] Manual / circuit breaker | [OK] Nativo via MassTransit | [OK] Nativo |
+| Dead-letter queue | [x] Não nativo | [OK] Nativo | [OK] Nativo |
+| Complexidade operacional | [OK] Mínima | [!] Média | [x] Alta |
+| Self-hosted portável | — | [OK] Sim | [!] Requer Zookeeper/KRaft |
+| Volume atual | — | [OK] Adequado | [!] Overkill |
 
 ## Decisão
 
@@ -52,16 +52,16 @@ MassTransit abstrai o broker do código de aplicação: a interface `IEventBus` 
 ## Consequências
 
 **Positivo:**
-- ✅ Entries opera normalmente mesmo com Consolidated offline
-- ✅ Mensagens são persistidas no broker durante indisponibilidade do consumer
-- ✅ Retry automático trata falhas transientes sem intervenção manual
-- ✅ DLQ garante que mensagens nunca são perdidas silenciosamente
-- ✅ Abstração via `IEventBus` facilita troca de broker em produção (Azure Service Bus)
+- [OK] Entries opera normalmente mesmo com Consolidated offline
+- [OK] Mensagens são persistidas no broker durante indisponibilidade do consumer
+- [OK] Retry automático trata falhas transientes sem intervenção manual
+- [OK] DLQ garante que mensagens nunca são perdidas silenciosamente
+- [OK] Abstração via `IEventBus` facilita troca de broker em produção (Azure Service Bus)
 
 **Negativo / Trade-offs:**
-- ⚠️ Consistência eventual: saldo consolidado pode ter atraso de segundos
-- ⚠️ Requer monitoramento da DLQ (alerta recomendado: `DLQNotEmpty`)
-- ⚠️ At-least-once delivery: o consumer deve ser **idempotente** (implementado via upsert no aggregate)
+- [!] Consistência eventual: saldo consolidado pode ter atraso de segundos
+- [!] Requer monitoramento da DLQ (alerta recomendado: `DLQNotEmpty`)
+- [!] At-least-once delivery: o consumer deve ser **idempotente** (implementado via upsert no aggregate)
 
 ## Nota sobre Idempotência
 

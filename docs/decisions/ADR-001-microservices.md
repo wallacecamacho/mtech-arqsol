@@ -28,9 +28,9 @@ Há um **requisito não-funcional explícito**: *"O serviço de controle de lan�
 
 | Alternativa | Isolamento de falhas | Escala independente | Complexidade operacional | Decisão |
 |---|---|---|---|---|
-| **Monolito simples** | ❌ Um processo, falha compartilhada | ❌ Escala tudo junto | ✅ Mínima | Rejeitado |
-| **Monolito Modular** | ⚠️ Mesmo processo, módulos isolados | ❌ Escala tudo junto | ✅ Baixa | Rejeitado |
-| **Microservices** | ✅ Processos e bancos independentes | ✅ Cada serviço escala isolado | ⚠️ Média | **Escolhido** |
+| **Monolito simples** | [x] Um processo, falha compartilhada | [x] Escala tudo junto | [OK] Mínima | Rejeitado |
+| **Monolito Modular** | [!] Mesmo processo, módulos isolados | [x] Escala tudo junto | [OK] Baixa | Rejeitado |
+| **Microservices** | [OK] Processos e bancos independentes | [OK] Cada serviço escala isolado | [!] Média | **Escolhido** |
 
 ## Decisão
 
@@ -47,17 +47,17 @@ A comunicação entre serviços é **assíncrona via RabbitMQ** (ver ADR-002), g
 ## Consequências
 
 **Positivo:**
-- ✅ Requisito RNF1 atendido: Entries opera normalmente mesmo com Consolidated offline
-- ✅ Entries e Consolidated escalam horizontalmente de forma independente
-- ✅ Deploy de um serviço não requer restart do outro
-- ✅ Schema de cada banco evolui sem coordenação
-- ✅ Cada serviço pode ser versionado, testado e monitorado de forma isolada
+- [OK] Requisito RNF1 atendido: Entries opera normalmente mesmo com Consolidated offline
+- [OK] Entries e Consolidated escalam horizontalmente de forma independente
+- [OK] Deploy de um serviço não requer restart do outro
+- [OK] Schema de cada banco evolui sem coordenação
+- [OK] Cada serviço pode ser versionado, testado e monitorado de forma isolada
 
 **Negativo / Trade-offs:**
-- ⚠️ Maior complexidade operacional (3 serviços, 2 bancos, 1 broker)
-- ⚠️ Consistência eventual: saldo consolidado pode ter atraso de segundos após um lançamento
-- ⚠️ Distributed tracing necessário para rastrear fluxos cross-service (mitigado com Jaeger + Correlation ID)
-- ⚠️ Mais infra para manter em desenvolvimento local (mitigado com Docker Compose)
+- [!] Maior complexidade operacional (3 serviços, 2 bancos, 1 broker)
+- [!] Consistência eventual: saldo consolidado pode ter atraso de segundos após um lançamento
+- [!] Distributed tracing necessário para rastrear fluxos cross-service (mitigado com Jaeger + Correlation ID)
+- [!] Mais infra para manter em desenvolvimento local (mitigado com Docker Compose)
 
 ## Notas de Implementação
 

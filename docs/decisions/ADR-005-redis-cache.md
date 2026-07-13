@@ -56,16 +56,16 @@ O banco recebe apenas ~0.2 req/s de leituras diretas — bem abaixo do limite.
 ## Consequências
 
 **Positivo:**
-- ✅ Suporta 50 req/s com hit rate de ~99.9% e latência sub-milissegundo no cache
-- ✅ Cache distribuído: funciona corretamente com múltiplas instâncias do Consolidated
-- ✅ Invalidação ativa garante consistência eventual rápida após novos lançamentos
-- ✅ TTL adaptativo: histórico permanece cacheado por 24h sem risco de dados errados
-- ✅ Abstração via `IDistributedCache`: facilita troca de Redis por outro provider sem alterar Application layer
+- [OK] Suporta 50 req/s com hit rate de ~99.9% e latência sub-milissegundo no cache
+- [OK] Cache distribuído: funciona corretamente com múltiplas instâncias do Consolidated
+- [OK] Invalidação ativa garante consistência eventual rápida após novos lançamentos
+- [OK] TTL adaptativo: histórico permanece cacheado por 24h sem risco de dados errados
+- [OK] Abstração via `IDistributedCache`: facilita troca de Redis por outro provider sem alterar Application layer
 
 **Negativo / Trade-offs:**
-- ⚠️ Janela de inconsistência: entre a escrita no banco (pelo consumer) e a invalidação do cache, pode haver até 5 minutos de dado desatualizado **se** a invalidação falhar (mitigado: invalidação é feita antes de retornar)
-- ⚠️ Redis como ponto adicional de infraestrutura — mitigado com Multi-AZ em produção
-- ⚠️ Se Redis cair, Consolidated continua funcionando via fallback para o banco (degradação graciosa, não falha total)
+- [!] Janela de inconsistência: entre a escrita no banco (pelo consumer) e a invalidação do cache, pode haver até 5 minutos de dado desatualizado **se** a invalidação falhar (mitigado: invalidação é feita antes de retornar)
+- [!] Redis como ponto adicional de infraestrutura — mitigado com Multi-AZ em produção
+- [!] Se Redis cair, Consolidated continua funcionando via fallback para o banco (degradação graciosa, não falha total)
 
 ## Comportamento em Caso de Falha do Redis
 
