@@ -1,6 +1,19 @@
 # CashFlow — Sistema de Controle de Fluxo de Caixa
 
+![.NET 8](https://img.shields.io/badge/.NET-8-512BD4?logo=dotnet) ![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker) ![RabbitMQ](https://img.shields.io/badge/RabbitMQ-3-FF6600?logo=rabbitmq) ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?logo=postgresql) ![Redis](https://img.shields.io/badge/Redis-7-DC382D?logo=redis)
+
 Solução para o desafio técnico de Arquiteto de Soluções. Sistema event-driven de microservices em .NET 8 para controle de lançamentos financeiros e consolidado diário.
+
+## Sumário
+
+- [Arquitetura](#arquitetura)
+- [Quick Start](#quick-start)
+- [Executar Testes](#executar-testes)
+- [Observabilidade](#observabilidade)
+- [Documentação](#documentação)
+- [Estrutura do Repositório](#estrutura-do-repositório)
+- [Stack Tecnológica](#stack-tecnológica)
+- [Decisões Arquiteturais](#decisões-arquiteturais)
 
 ## Arquitetura
 
@@ -49,8 +62,9 @@ Comerciante
 
 ```bash
 cp .env.example .env
-# Editar .env — OBRIGATÓRIO trocar JWT_SECRET_KEY por uma chave forte
 ```
+
+> **Obrigatório:** edite `.env` e substitua `JWT_SECRET_KEY` por uma chave segura com no mínimo 32 caracteres antes de subir em produção.
 
 ### 2. Subir todos os serviços
 
@@ -59,7 +73,9 @@ make up
 # ou: docker compose up --build -d
 ```
 
-Aguarde ~60 segundos para os serviços inicializarem (health checks).
+> O `make up` já copia `.env.example` para `.env` automaticamente caso o arquivo ainda não exista.
+
+Aguarde ~60 segundos para os health checks passarem.
 
 ### 3. Verificar status
 
@@ -97,7 +113,7 @@ curl -X POST http://localhost:8000/api/entries \
     "currency": "BRL",
     "type": 1,
     "description": "Venda de produto",
-    "entryDate": "2024-01-15"
+    "entryDate": "2026-07-13"
   }'
 ```
 
@@ -111,16 +127,19 @@ curl http://localhost:8000/api/consolidated \
   -H "Authorization: Bearer <TOKEN>"
 
 # Saldo de uma data específica
-curl http://localhost:8000/api/consolidated/2024-01-15 \
+curl http://localhost:8000/api/consolidated/2026-07-13 \
   -H "Authorization: Bearer <TOKEN>"
 ```
 
 ## Executar Testes
 
 ```bash
-# Instalar .NET 8 SDK primeiro:
-# sudo snap install dotnet-sdk --classic
+# Via Makefile (recomendado)
+make test
 
+# Ou diretamente com o .NET CLI
+# Instalar .NET 8 SDK primeiro, se necessário:
+# sudo snap install dotnet-sdk --classic
 dotnet test CashFlow.sln --logger "console;verbosity=normal"
 ```
 
