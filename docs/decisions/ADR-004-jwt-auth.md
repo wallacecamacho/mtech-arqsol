@@ -1,55 +1,101 @@
-# ADR-004: JWT Bearer para Autenticação Stateless
+# ADR-004: Autenticação Stateless com JWT Bearer
 
-**Status:** Aceito  
+**Status:** Aceito
 **Data:** 2024-01-01
+**Decisores:** Time de Arquitetura
+**Depende de:** [ADR-001](ADR-001-microservices.md)
+
+---
 
 ## Contexto
 
-Os serviços precisam autenticar requisições de comerciantes. A solução deve ser escalável horizontalmente (sem sessão centralizada) e compatível com o padrão de microservices.
+Os serviços precisam autenticar requisições de comerciantes e garantir que cada comerciante acesse **apenas seus próprios dados**. A solução deve:
+
+- Funcionar de forma stateless (sem sessão centralizada) para suportar escala horizontal
+- Isolar dados por `merchantId` sem exigir que o cliente informe esse ID (seria falseado facilmente)
+- Ser compatível com o padrão de API Gateway: o Gateway valida o token e os serviços internos re-validam (defense in depth)
+
+## Drivers de Decisão
+
+- **Seguridade**: `merchantId` deve ser extraído do token assinado, nunca do body ou query string
+- **Escalabilidade**: Sem servidor de sessão compartilhado
+- **Simplicidade**: Para o MVP, evitar dependência de IdP externo
+- **Defense in depth**: Validação em duas camadas (Gateway + serviço interno)
 
 ## Decisão
 
-Usar **JWT (JSON Web Tokens)** com assinatura **HMAC-SHA256**. O Gateway emite e valida tokens. Os serviços internos também validam o JWT (defense in depth). No MVP, o próprio Gateway expõe um endpoint `/api/auth/token` para emissão (demo). Em produção, substituir por Keycloak ou Azure AD B2C.
+Usar **JWT (JSON Web Tokens)** com assinatura **HMAC-SHA256** (algoritmo `HS256`). O Gateway emite e valida tokens. Os serviços internos também validam o JWT de forma independente.
 
-## Claims no Token
+### Estrutura do Token
 
 ```json
 {
-  "sub": "<merchantId (UUID)>",
-  "jti": "<token único>",
-  "iat": "<timestamp>",
-  "exp": "<+8h>",
+  "sub": "<merchantId — UUID estável por usuário>",
+  "jti": "<UUID único por token>",
+  "iat": "<timestamp de emissão>",
+  "exp": "<iat + 8 horas>",
   "iss": "cashflow-gateway",
-  "aud": "cashflow-services",
-  "role": "merchant"
+  "aud": "cashflow-services"
 }
 ```
 
-## Configuração de Segurança
+> O claim `sub` é um UUID estável derivado do username via hash SHA-256 (determinístico). Isso garante que o mesmo usuário sempre recebe o mesmo `merchantId`, mesmo em instâncias diferentes do Gateway sem estado compartilhado.
 
-- **Algoritmo**: HMAC-SHA256 (simétrico, chave ≥32 bytes via variável de ambiente)
-- **Expiração**: 8 horas
-- **ClockSkew**: Zero (sem tolerância)
-- **Validações**: Issuer, Audience, Lifetime, Signature
+### Parâmetros de Validação
 
-## Trade-offs
-
-| Aspecto | JWT | Session/Cookie |
+| Parâmetro | Valor | Justificativa |
 |---|---|---|
-| Escalabilidade | **Stateless — sem servidor de sessão** | Requer sticky sessions ou Redis session |
-| Revogação | Difícil (TTL fixo) | Imediata |
-| Overhead de rede | Token viaja em cada request | Apenas session ID |
-| Complexidade | Baixa | Baixa |
+| Algoritmo | HMAC-SHA256 | Simples, seguro, sem infra de PKI |
+| Chave | ≥ 32 bytes via `JWT_SECRET_KEY` (env var) | Nunca em código ou repositório |
+| Expiração | 8 horas | Equilíbrio entre usabilidade e janela de risco |
+| ClockSkew | Zero | Sem tolerância — evita abuso de tokens quase-expirados |
+| Validações ativas | Issuer, Audience, Lifetime, Signature | Todas habilitadas |
 
-## Produção: Recomendação
+### Fluxo de Autenticação
 
-Para produção, substituir o endpoint de auth demo por:
-1. **Keycloak** (self-hosted, open source)
-2. **Azure AD B2C** (managed, cloud)
-3. **Auth0** (SaaS)
+```
+1. Comerciante  →  POST /api/auth/token {username, password}
+2. Gateway      →  Valida credenciais (demo: qualquer não-vazio; produção: IdP)
+3. Gateway      →  Emite JWT assinado (sub = DeterministicGuid(username))
+4. Comerciante  →  Authorization: Bearer <token> em todas as requisições
+5. Gateway      →  Valida JWT antes de proxiar (primeira linha)
+6. Serviço      →  Re-valida JWT (defense in depth)
+7. Serviço      →  Extrai merchantId do claim 'sub' — isolamento de dados
+```
+
+## Consequências
+
+**Positivo:**
+- ✅ Stateless: qualquer instância do Gateway valida qualquer token sem estado compartilhado
+- ✅ `merchantId` vem do token assinado — impossível de forjar sem a chave
+- ✅ Defense in depth: comprometimento do Gateway não bypassa validação nos serviços
+- ✅ Zero dependência externa no MVP
+
+**Negativo / Trade-offs:**
+- ⚠️ Revogação imediata não é possível sem blacklist (token válido por até 8h após compromisso)
+- ⚠️ Chave simétrica compartilhada: se vazada, todos os tokens podem ser forjados
+- ⚠️ Endpoint `/api/auth/token` é demo — não é prod-ready (aceita qualquer senha)
+
+## Recomendação para Produção
+
+Substituir o endpoint de auth demo por um IdP dedicado com OAuth2 Authorization Code Flow + PKCE:
+
+| Opção | Tipo | Recomendado quando |
+|---|---|---|
+| **Keycloak** | Self-hosted, open source | Controle total, on-premise |
+| **Azure AD B2C** | Managed, cloud | Azure como cloud principal |
+| **Auth0** | SaaS | Velocidade de entrega > controle |
 
 ## Alternativas Rejeitadas
 
-- **API Key**: Sem expiração nativa, sem informações de identidade no token.
-- **OAuth2 com Authorization Code Flow**: Ideal para produção com usuários reais. Complexidade justificada apenas em produção.
-- **mTLS**: Adequado para comunicação inter-serviço, não para usuário final.
+| Alternativa | Motivo da Rejeição |
+|---|---|
+| API Key estática | Sem expiração nativa, sem `merchantId` no token, difícil rotacionar |
+| Session + Cookie | Requer armazenamento centralizado de sessão — quebra escala horizontal |
+| mTLS | Adequado para comunicação inter-serviço, não para usuário final |
+| OAuth2 completo (MVP) | Complexidade não justificada para o MVP; recomendado apenas em produção |
+
+## Referências
+
+- [Security Design Document](../security/security-design.md)
+- [ADR-001: Arquitetura de Microservices](ADR-001-microservices.md)
