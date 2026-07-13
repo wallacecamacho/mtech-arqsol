@@ -1,0 +1,11 @@
+{
+  "Version": 1,
+  "Hash": "pFb3wkQhPH6bLiQcgtsrGuBfG3YEAwCN9mD+8lcyU6Q=",
+  "Source": "CashFlow.Gateway",
+  "BasePath": "_content/CashFlow.Gateway",
+  "Mode": "Default",
+  "ManifestType": "Build",
+  "ReferencedProjectsConfiguration": [],
+  "DiscoveryPatterns": [],
+  "Assets": []
+}

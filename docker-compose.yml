@@ -1,0 +1,165 @@
+name: cashflow
+
+services:
+  # ─── Infrastructure ───────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: cashflow
+      POSTGRES_PASSWORD: cashflow_pass
+      POSTGRES_MULTIPLE_DATABASES: cashflow_entries,cashflow_consolidated
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infrastructure/docker/postgres/init-multiple-dbs.sh:/docker-entrypoint-initdb.d/init-multiple-dbs.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cashflow"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: cashflow
+      RABBITMQ_DEFAULT_PASS: cashflow_pass
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "check_port_connectivity"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --requirepass cashflow_pass --maxmemory 256mb --maxmemory-policy allkeys-lru
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "cashflow_pass", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  seq:
+    image: datalust/seq:latest
+    restart: unless-stopped
+    environment:
+      ACCEPT_EULA: "Y"
+    ports:
+      - "5341:5341"
+      - "8888:80"
+    volumes:
+      - seq_data:/data
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.60
+    restart: unless-stopped
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "16686:16686"
+      - "4317:4317"
+
+  # ─── Application Services ─────────────────────────────────────────────
+  entries:
+    build:
+      context: .
+      dockerfile: src/services/CashFlow.Entries/Dockerfile
+    restart: unless-stopped
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_URLS: http://+:8080
+      ConnectionStrings__DefaultConnection: "Host=postgres;Port=5432;Database=cashflow_entries;Username=cashflow;Password=cashflow_pass"
+      RabbitMQ__Host: rabbitmq
+      RabbitMQ__Username: cashflow
+      RabbitMQ__Password: cashflow_pass
+      Jwt__Key: "${JWT_SECRET_KEY}"
+      Jwt__Issuer: cashflow-gateway
+      Jwt__Audience: cashflow-services
+      Seq__ServerUrl: http://seq:5341
+      Otlp__Endpoint: http://jaeger:4317
+    ports:
+      - "5001:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/health/live"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  consolidated:
+    build:
+      context: .
+      dockerfile: src/services/CashFlow.Consolidated/Dockerfile
+    restart: unless-stopped
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_URLS: http://+:8080
+      ConnectionStrings__DefaultConnection: "Host=postgres;Port=5432;Database=cashflow_consolidated;Username=cashflow;Password=cashflow_pass"
+      ConnectionStrings__Redis: "redis:6379,password=cashflow_pass"
+      RabbitMQ__Host: rabbitmq
+      RabbitMQ__Username: cashflow
+      RabbitMQ__Password: cashflow_pass
+      Jwt__Key: "${JWT_SECRET_KEY}"
+      Jwt__Issuer: cashflow-gateway
+      Jwt__Audience: cashflow-services
+      Seq__ServerUrl: http://seq:5341
+      Otlp__Endpoint: http://jaeger:4317
+    ports:
+      - "5002:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/health/live"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  gateway:
+    build:
+      context: .
+      dockerfile: src/gateway/CashFlow.Gateway/Dockerfile
+    restart: unless-stopped
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_URLS: http://+:8080
+      Jwt__Key: "${JWT_SECRET_KEY}"
+      Jwt__Issuer: cashflow-gateway
+      Jwt__Audience: cashflow-services
+      Seq__ServerUrl: http://seq:5341
+      Otlp__Endpoint: http://jaeger:4317
+    ports:
+      - "8000:8080"
+    depends_on:
+      entries:
+        condition: service_healthy
+      consolidated:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  rabbitmq_data:
+  redis_data:
+  seq_data:
