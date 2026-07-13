@@ -26,26 +26,38 @@ C4Component
     title CashFlow.Entries — Component Diagram
 
     Container_Boundary(entries, "CashFlow.Entries") {
-        Component(controller, "EntriesController", "ASP.NET Core Controller — API Layer", "Recebe requisições HTTP autenticadas. Extrai merchantId do claim 'sub' do JWT. Delega para MediatR. Traduz Result<T> em HTTP response.")
-        Component(createCmd, "CreateEntryCommand + Handler", "MediatR Command — Application Layer", "Orquestra o caso de uso de criação: valida com FluentValidation via pipeline, cria o aggregate Entry, persiste no banco e publica EntryCreatedIntegrationEvent.")
-        Component(getQuery, "GetEntriesByDateQuery + Handler", "MediatR Query — Application Layer", "Busca lançamentos por data e merchantId. Retorna lista de EntryDto sem expor o aggregate diretamente.")
-        Component(validationBehavior, "ValidationPipelineBehavior", "MediatR Pipeline — Application Layer", "Intercepta todos os Commands/Queries antes do Handler. Executa FluentValidation. Retorna Result.Failure com erros sem chegar ao Handler.")
-        Component(entry, "Entry Aggregate", "Domain Entity — Domain Layer", "Raiz de agregado. Encapsula regras de negócio: amount > 0, description não vazia, data não futura. Emite EntryCreatedDomainEvent ao ser criado.")
-        Component(money, "Money Value Object", "Domain Value Object — Domain Layer", "Imutável. Encapsula Amount (decimal) e Currency (ISO 4217). Garante amount >= 0. Operações Add/Subtract com validação de moeda igual.")
-        Component(entryRepo, "IEntryRepository / EntryRepository", "Repository — Infrastructure Layer", "Interface definida no Domain. Implementação com EF Core no Infrastructure. Métodos: GetByIdAsync, GetByDateAsync, AddAsync, SaveChangesAsync.")
-        Component(eventbus, "MassTransitEventBus", "Event Bus — Infrastructure Layer", "Implementa IEventBus. Usa IBus do MassTransit para publicar IntegrationEvents no RabbitMQ. Abstrai o broker da camada de Application.")
-        Component(dbCtx, "EntriesDbContext", "EF Core DbContext — Infrastructure Layer", "Mapeia Entry para tabela 'entries'. Usa OwnsOne para Money (colunas amount/currency). Índice composto em (merchant_id, entry_date).")
+
+        Container_Boundary(api, "API Layer") {
+            Component(controller, "EntriesController", "ASP.NET Core Controller", "Recebe requisições HTTP autenticadas. Extrai merchantId do claim 'sub' do JWT. Delega para MediatR. Traduz Result<T> em HTTP response.")
+        }
+
+        Container_Boundary(app, "Application Layer") {
+            Component(validationBehavior, "ValidationPipelineBehavior", "MediatR Pipeline Behavior", "Intercepta todos os Commands/Queries antes do Handler. Executa FluentValidation. Retorna Result.Failure com erros sem chegar ao Handler.")
+            Component(createCmd, "CreateEntryCommand + Handler", "MediatR Command", "Orquestra o caso de uso de criação: valida via pipeline, cria o aggregate Entry, persiste no banco e publica EntryCreatedIntegrationEvent.")
+            Component(getQuery, "GetEntriesByDateQuery + Handler", "MediatR Query", "Busca lançamentos por data e merchantId. Retorna lista de EntryDto sem expor o aggregate diretamente.")
+        }
+
+        Container_Boundary(domain, "Domain Layer") {
+            Component(entry, "Entry", "Aggregate Root", "Encapsula regras de negócio: amount > 0, description não vazia, data não futura. Emite EntryCreatedDomainEvent ao ser criado.")
+            Component(money, "Money", "Value Object", "Imutável. Encapsula Amount (decimal) e Currency (ISO 4217). Garante amount >= 0. Operações Add/Subtract com validação de moeda igual.")
+        }
+
+        Container_Boundary(infra, "Infrastructure Layer") {
+            Component(entryRepo, "EntryRepository", "EF Core Repository", "Implementa IEntryRepository definida no Domain. Métodos: GetByIdAsync, GetByDateAsync, AddAsync, SaveChangesAsync.")
+            Component(dbCtx, "EntriesDbContext", "EF Core DbContext", "Mapeia Entry para tabela 'entries'. OwnsOne para Money. Índice composto em (merchant_id, entry_date).")
+            Component(eventbus, "MassTransitEventBus", "Event Bus", "Implementa IEventBus. Usa IBus do MassTransit para publicar IntegrationEvents no RabbitMQ.")
+        }
     }
 
-    Rel(controller, createCmd, "Send(CreateEntryCommand)", "MediatR in-process")
-    Rel(controller, getQuery, "Send(GetEntriesByDateQuery)", "MediatR in-process")
-    Rel(createCmd, validationBehavior, "interceptado por", "MediatR pipeline")
+    Rel(controller, validationBehavior, "Send(Command/Query)", "MediatR pipeline")
+    Rel(validationBehavior, createCmd, "next() se válido")
+    Rel(validationBehavior, getQuery, "next() se válido")
     Rel(createCmd, entry, "Entry.Create(amount, currency, type, description, date, merchantId)")
     Rel(createCmd, entryRepo, "AddAsync(entry) + SaveChangesAsync()")
     Rel(createCmd, eventbus, "PublishAsync(EntryCreatedIntegrationEvent)")
     Rel(getQuery, entryRepo, "GetByDateAsync(merchantId, date)")
+    Rel(entry, money, "Owns")
     Rel(entryRepo, dbCtx, "LINQ queries via EF Core")
-    Rel(entry, money, "Owns (Amount é um Money)")
 ```
 
 ### Responsabilidades por Componente — Entries Service
@@ -74,21 +86,33 @@ C4Component
     title CashFlow.Consolidated — Component Diagram
 
     Container_Boundary(consolidated, "CashFlow.Consolidated") {
-        Component(controller, "ConsolidatedController", "ASP.NET Core Controller — API Layer", "Expõe GET /api/consolidated/{date} e GET /api/consolidated (hoje). Extrai merchantId do JWT. Retorna DailyBalanceDto ou 404 se não houver saldo.")
-        Component(balanceQuery, "GetDailyBalanceQuery + Handler", "MediatR Query — Application Layer", "Cache-aside pattern: verifica Redis primeiro. Se miss, busca no banco, popula cache com TTL adaptativo (5min hoje / 24h histórico) e retorna DTO.")
-        Component(consumer, "EntryCreatedConsumer", "MassTransit Consumer — Application Layer", "Consome EntryCreatedIntegrationEvent da fila RabbitMQ. Atualiza DailyBalance (cria se não existe). Invalida cache Redis da data/comerciante após persistir.")
-        Component(dailyBalance, "DailyBalance Aggregate", "Domain Entity — Domain Layer", "Raiz de agregado. Acumula TotalCredits e TotalDebits. Balance = TotalCredits - TotalDebits. Valida que valores aplicados sejam positivos.")
-        Component(balanceRepo, "IDailyBalanceRepository / DailyBalanceRepository", "Repository — Infrastructure Layer", "Interface no Domain, implementação EF Core no Infrastructure. Métodos: GetByMerchantAndDateAsync, GetByMerchantAndDateRangeAsync, AddAsync, Update, SaveChangesAsync.")
-        Component(cache, "Redis Distributed Cache", "Cache — Infrastructure Layer", "IDistributedCache via StackExchange.Redis. Chave: 'dailybalance:{merchantId}:{yyyy-MM-dd}'. Usado pela Query (read) e pelo Consumer (invalidate).")
-        Component(dbCtx, "ConsolidatedDbContext", "EF Core DbContext — Infrastructure Layer", "Mapeia DailyBalance para tabela 'daily_balances'. Índice único em (merchant_id, date) para garantir um saldo por comerciante por dia.")
+
+        Container_Boundary(api2, "API Layer") {
+            Component(controller, "ConsolidatedController", "ASP.NET Core Controller", "Expõe GET /api/consolidated/{date} e GET /api/consolidated (hoje). Extrai merchantId do JWT. Retorna DailyBalanceDto ou 404 se não houver saldo.")
+        }
+
+        Container_Boundary(app2, "Application Layer") {
+            Component(balanceQuery, "GetDailyBalanceQuery + Handler", "MediatR Query", "Cache-aside: verifica Redis primeiro. Se miss, busca no banco, popula cache com TTL adaptativo (5min hoje / 24h histórico) e retorna DTO.")
+            Component(consumer, "EntryCreatedConsumer", "MassTransit Consumer", "Consome EntryCreatedIntegrationEvent do RabbitMQ. Cria ou atualiza DailyBalance. Invalida cache Redis após persistir.")
+        }
+
+        Container_Boundary(domain2, "Domain Layer") {
+            Component(dailyBalance, "DailyBalance", "Aggregate Root", "Acumula TotalCredits e TotalDebits. Balance = Credits - Debits. Valida que valores aplicados sejam positivos.")
+        }
+
+        Container_Boundary(infra2, "Infrastructure Layer") {
+            Component(balanceRepo, "DailyBalanceRepository", "EF Core Repository", "Implementa IDailyBalanceRepository. Métodos: GetByMerchantAndDateAsync, GetByMerchantAndDateRangeAsync, AddAsync, Update, SaveChangesAsync.")
+            Component(cache, "Redis Cache", "IDistributedCache", "StackExchange.Redis. Chave: 'dailybalance:{merchantId}:{yyyy-MM-dd}'. TTL 5min (hoje) / 24h (histórico). Lido pela Query e invalidado pelo Consumer.")
+            Component(dbCtx, "ConsolidatedDbContext", "EF Core DbContext", "Mapeia DailyBalance para 'daily_balances'. Índice único em (merchant_id, date).")
+        }
     }
 
     Rel(controller, balanceQuery, "Send(GetDailyBalanceQuery)", "MediatR in-process")
-    Rel(balanceQuery, cache, "GetStringAsync(cacheKey) / SetStringAsync(cacheKey, json, ttl)")
+    Rel(balanceQuery, cache, "GetStringAsync / SetStringAsync")
     Rel(balanceQuery, balanceRepo, "GetByMerchantAndDateAsync(merchantId, date)")
-    Rel(consumer, balanceRepo, "GetByMerchantAndDateAsync + Update + SaveChangesAsync")
     Rel(consumer, dailyBalance, "ApplyCredit(amount) / ApplyDebit(amount)")
-    Rel(consumer, cache, "RemoveAsync(cacheKey) — invalida após persistir")
+    Rel(consumer, balanceRepo, "GetByMerchantAndDateAsync + Update + SaveChangesAsync")
+    Rel(consumer, cache, "RemoveAsync(cacheKey)")
     Rel(balanceRepo, dbCtx, "LINQ queries via EF Core")
 ```
 
