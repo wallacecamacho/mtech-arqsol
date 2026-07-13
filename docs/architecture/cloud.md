@@ -1,7 +1,7 @@
 # Cloud Architecture — CashFlow System
 
 > Mapeamento da solução para infraestrutura AWS production-ready.  
-> Referência: [C4 Container Diagram](container.md)
+> Referência: [C4 Container Diagram](container.md) · [Versão Azure](cloud-azure.md)
 
 ---
 
@@ -53,6 +53,7 @@ flowchart TB
     ECS -->|secrets/keys| SEC
     DATA -.->|encrypted| KMS
 ```
+
 
 ## 2. Diagrama de Rede (Security Groups)
 
