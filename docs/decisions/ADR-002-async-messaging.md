@@ -1,7 +1,8 @@
 # ADR-002: Comunicação Assíncrona via RabbitMQ
 
 **Status:** Aceito
-**Data:** 2024-01-01
+**Data:** 2024-01-01  
+**Atualizado:** 2026-07-17 — Referência ao Outbox (ADR-006)
 **Decisores:** Time de Arquitetura
 **Depende de:** [ADR-001](ADR-001-microservices.md)
 
@@ -57,11 +58,16 @@ MassTransit abstrai o broker do código de aplicação: a interface `IEventBus` 
 - [OK] Retry automático trata falhas transientes sem intervenção manual
 - [OK] DLQ garante que mensagens nunca são perdidas silenciosamente
 - [OK] Abstração via `IEventBus` facilita troca de broker em produção (Azure Service Bus)
+- [OK] Padrão Outbox (ADR-006) elimina o risco de dual-write: evento nunca se perde mesmo com crash após `SaveChanges`
 
 **Negativo / Trade-offs:**
-- [!] Consistência eventual: saldo consolidado pode ter atraso de segundos
+- [!] Consistência eventual: saldo consolidado pode ter atraso de segundos (acrescido de ~5s do polling do Outbox)
 - [!] Requer monitoramento da DLQ (alerta recomendado: `DLQNotEmpty`)
 - [!] At-least-once delivery: o consumer deve ser **idempotente** (implementado via upsert no aggregate)
+
+## Publicação Confiável — Outbox
+
+A publicação do `EntryCreatedIntegrationEvent` utiliza o padrão **Transactional Outbox** (ADR-006). O handler persiste a mensagem na tabela `outbox_messages` na **mesma transação** que salva o aggregate. Um `BackgroundService` faz polling a cada 5s e publica as mensagens pendentes no RabbitMQ. Isso elimina o risco de perda de evento por falha entre `SaveChanges` e `PublishAsync`.
 
 ## Nota sobre Idempotência
 

@@ -1,7 +1,8 @@
 # ADR-004: Autenticação Stateless com JWT Bearer
 
 **Status:** Aceito
-**Data:** 2024-01-01
+**Data:** 2024-01-01  
+**Atualizado:** 2026-07-17 — Validação de credenciais (PBKDF2), policy `merchant-only`, JWT enforced no edge
 **Decisores:** Time de Arquitetura
 **Depende de:** [ADR-001](ADR-001-microservices.md)
 
@@ -55,11 +56,12 @@ Usar **JWT (JSON Web Tokens)** com assinatura **HMAC-SHA256** (algoritmo `HS256`
 
 ```
 1. Comerciante  →  POST /api/auth/token {username, password}
-2. Gateway      →  Valida credenciais (demo: qualquer não-vazio; produção: IdP)
+2. Gateway      →  Valida credenciais no DemoUserStore via PBKDF2-SHA256
+                   (produção: substituir por IdP com OAuth2)
 3. Gateway      →  Emite JWT assinado (sub = DeterministicGuid(username))
 4. Comerciante  →  Authorization: Bearer <token> em todas as requisições
-5. Gateway      →  Valida JWT antes de proxiar (primeira linha)
-6. Serviço      →  Re-valida JWT (defense in depth)
+5. Gateway      →  Valida JWT E policy merchant-only antes de proxiar
+6. Serviço      →  Re-valida JWT + policy merchant-only (defense in depth)
 7. Serviço      →  Extrai merchantId do claim 'sub' — isolamento de dados
 ```
 
@@ -70,11 +72,14 @@ Usar **JWT (JSON Web Tokens)** com assinatura **HMAC-SHA256** (algoritmo `HS256`
 - [OK] `merchantId` vem do token assinado — impossível de forjar sem a chave
 - [OK] Defense in depth: comprometimento do Gateway não bypassa validação nos serviços
 - [OK] Zero dependência externa no MVP
+- [OK] Policy `merchant-only` verifica claim `role = "merchant"` em todos os endpoints protegidos
+- [OK] Gateway rejeita requisições sem JWT válido antes de fazer proxy (edge enforcement)
+- [OK] Credenciais demo validadas com PBKDF2 (100.000 iterações): qualquer senha não é mais aceita
 
 **Negativo / Trade-offs:**
-- [!] Revogação imediata não é possível sem blacklist (token válido por até 8h após compromisso)
+- [!] Revogação imediata não é possível sem blacklist (token válido por até 8h após comprometimento)
 - [!] Chave simétrica compartilhada: se vazada, todos os tokens podem ser forjados
-- [!] Endpoint `/api/auth/token` é demo — não é prod-ready (aceita qualquer senha)
+- [!] DemoUserStore com salt fixo: não é prod-ready (salt único por usuário exigido em produção)
 
 ## Recomendação para Produção
 

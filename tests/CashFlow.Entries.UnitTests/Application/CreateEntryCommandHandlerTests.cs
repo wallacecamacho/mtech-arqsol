@@ -1,8 +1,7 @@
 using CashFlow.Entries.Application.Commands;
 using CashFlow.Entries.Domain.Entities;
+using CashFlow.Entries.Domain.Outbox;
 using CashFlow.Entries.Domain.Repositories;
-using CashFlow.EventBus.Abstractions;
-using CashFlow.EventBus.Events;
 using FluentAssertions;
 using Moq;
 using Xunit;
@@ -12,18 +11,18 @@ namespace CashFlow.Entries.UnitTests.Application;
 public class CreateEntryCommandHandlerTests
 {
     private readonly Mock<IEntryRepository> _repositoryMock;
-    private readonly Mock<IEventBus> _eventBusMock;
+    private readonly Mock<IOutboxRepository> _outboxRepositoryMock;
     private readonly CreateEntryCommandHandler _handler;
 
     public CreateEntryCommandHandlerTests()
     {
         _repositoryMock = new Mock<IEntryRepository>();
-        _eventBusMock = new Mock<IEventBus>();
-        _handler = new CreateEntryCommandHandler(_repositoryMock.Object, _eventBusMock.Object);
+        _outboxRepositoryMock = new Mock<IOutboxRepository>();
+        _handler = new CreateEntryCommandHandler(_repositoryMock.Object, _outboxRepositoryMock.Object);
     }
 
     [Fact]
-    public async Task Handle_ValidCommand_ShouldCreateEntryAndPublishEvent()
+    public async Task Handle_ValidCommand_ShouldCreateEntryAndEnqueueOutboxMessage()
     {
         var command = new CreateEntryCommand(
             Amount: 100m,
@@ -34,7 +33,7 @@ public class CreateEntryCommandHandlerTests
             MerchantId: Guid.NewGuid());
 
         _repositoryMock.Setup(r => r.SaveChangesAsync(It.IsAny<CancellationToken>())).ReturnsAsync(1);
-        _eventBusMock.Setup(e => e.PublishAsync(It.IsAny<EntryCreatedIntegrationEvent>(), It.IsAny<CancellationToken>()))
+        _outboxRepositoryMock.Setup(o => o.AddAsync(It.IsAny<OutboxMessage>(), It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
 
         var result = await _handler.Handle(command, CancellationToken.None);
@@ -44,11 +43,13 @@ public class CreateEntryCommandHandlerTests
 
         _repositoryMock.Verify(r => r.AddAsync(It.IsAny<Entry>(), It.IsAny<CancellationToken>()), Times.Once);
         _repositoryMock.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
-        _eventBusMock.Verify(e => e.PublishAsync(It.IsAny<EntryCreatedIntegrationEvent>(), It.IsAny<CancellationToken>()), Times.Once);
+        _outboxRepositoryMock.Verify(o => o.AddAsync(
+            It.Is<OutboxMessage>(m => m.EventType == "entry.created"),
+            It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
-    public async Task Handle_ValidDebitCommand_ShouldPublishEventWithDebitType()
+    public async Task Handle_ValidDebitCommand_ShouldEnqueueOutboxMessageWithDebitType()
     {
         var command = new CreateEntryCommand(
             Amount: 50m,
@@ -60,15 +61,18 @@ public class CreateEntryCommandHandlerTests
 
         _repositoryMock.Setup(r => r.SaveChangesAsync(It.IsAny<CancellationToken>())).ReturnsAsync(1);
 
-        EntryCreatedIntegrationEvent? capturedEvent = null;
-        _eventBusMock.Setup(e => e.PublishAsync(It.IsAny<EntryCreatedIntegrationEvent>(), It.IsAny<CancellationToken>()))
-            .Callback<EntryCreatedIntegrationEvent, CancellationToken>((evt, _) => capturedEvent = evt)
+        OutboxMessage? capturedMessage = null;
+        _outboxRepositoryMock
+            .Setup(o => o.AddAsync(It.IsAny<OutboxMessage>(), It.IsAny<CancellationToken>()))
+            .Callback<OutboxMessage, CancellationToken>((msg, _) => capturedMessage = msg)
             .Returns(Task.CompletedTask);
 
         await _handler.Handle(command, CancellationToken.None);
 
-        capturedEvent.Should().NotBeNull();
-        capturedEvent!.EntryType.Should().Be("Debit");
-        capturedEvent.Amount.Should().Be(50m);
+        capturedMessage.Should().NotBeNull();
+        capturedMessage!.EventType.Should().Be("entry.created");
+        capturedMessage.Payload.Should().Contain("\"EntryType\":\"Debit\"");
+        capturedMessage.Payload.Should().Contain("\"Amount\":50");
     }
 }
+

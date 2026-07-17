@@ -1,8 +1,10 @@
 using CashFlow.Entries.Application.Commands;
 using CashFlow.Entries.Domain.Repositories;
+using CashFlow.Entries.Infrastructure;
 using CashFlow.Entries.Infrastructure.Persistence;
 using CashFlow.EventBus.Abstractions;
 using CashFlow.EventBus.Infrastructure;
+using Microsoft.AspNetCore.Authorization;
 using FluentValidation;
 using MassTransit;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -36,6 +38,8 @@ builder.Services.AddDbContext<EntriesDbContext>(options =>
 
 // --- Repositories ---
 builder.Services.AddScoped<IEntryRepository, EntryRepository>();
+builder.Services.AddScoped<IOutboxRepository, OutboxRepository>();
+builder.Services.AddHostedService<OutboxProcessorBackgroundService>();
 
 // --- MediatR + Validation Pipeline ---
 builder.Services.AddMediatR(cfg =>
@@ -87,7 +91,12 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
         };
     });
 
-builder.Services.AddAuthorization();
+builder.Services.AddAuthorization(options =>
+{
+    options.AddPolicy("merchant-only", policy =>
+        policy.RequireAuthenticatedUser()
+              .RequireClaim("role", "merchant"));
+});
 
 // --- OpenTelemetry ---
 builder.Services.AddOpenTelemetry()

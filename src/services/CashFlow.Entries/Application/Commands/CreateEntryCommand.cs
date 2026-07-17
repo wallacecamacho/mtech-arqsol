@@ -1,10 +1,11 @@
 using CashFlow.Entries.Domain.Entities;
+using CashFlow.Entries.Domain.Outbox;
 using CashFlow.Entries.Domain.Repositories;
-using CashFlow.EventBus.Abstractions;
 using CashFlow.EventBus.Events;
 using CashFlow.SharedKernel.Application;
 using FluentValidation;
 using MediatR;
+using System.Text.Json;
 
 namespace CashFlow.Entries.Application.Commands;
 
@@ -33,12 +34,12 @@ public class CreateEntryCommandValidator : AbstractValidator<CreateEntryCommand>
 public class CreateEntryCommandHandler : IRequestHandler<CreateEntryCommand, Result<Guid>>
 {
     private readonly IEntryRepository _repository;
-    private readonly IEventBus _eventBus;
+    private readonly IOutboxRepository _outboxRepository;
 
-    public CreateEntryCommandHandler(IEntryRepository repository, IEventBus eventBus)
+    public CreateEntryCommandHandler(IEntryRepository repository, IOutboxRepository outboxRepository)
     {
         _repository = repository;
-        _eventBus = eventBus;
+        _outboxRepository = outboxRepository;
     }
 
     public async Task<Result<Guid>> Handle(CreateEntryCommand request, CancellationToken cancellationToken)
@@ -52,7 +53,6 @@ public class CreateEntryCommandHandler : IRequestHandler<CreateEntryCommand, Res
             request.MerchantId);
 
         await _repository.AddAsync(entry, cancellationToken);
-        await _repository.SaveChangesAsync(cancellationToken);
 
         var integrationEvent = new EntryCreatedIntegrationEvent
         {
@@ -65,7 +65,16 @@ public class CreateEntryCommandHandler : IRequestHandler<CreateEntryCommand, Res
             EntryDate = entry.EntryDate
         };
 
-        await _eventBus.PublishAsync(integrationEvent, cancellationToken);
+        // Persist entry + outbox message atomically — the background processor
+        // publishes the event after SaveChanges, eliminating the dual-write risk.
+        await _outboxRepository.AddAsync(new OutboxMessage
+        {
+            EventType = integrationEvent.EventType,
+            Payload = JsonSerializer.Serialize(integrationEvent),
+            OccurredAt = DateTime.UtcNow
+        }, cancellationToken);
+
+        await _repository.SaveChangesAsync(cancellationToken);
 
         return Result.Success(entry.Id);
     }

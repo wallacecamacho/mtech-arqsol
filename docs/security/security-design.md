@@ -22,11 +22,13 @@ Internet → [TLS] → API Gateway → [JWT Validation] → [Rate Limit] → Int
 
 ```
 1. Comerciante → POST /api/auth/token {username, password}
-2. Gateway valida credenciais (demo: qualquer não-vazio; produção: IdP)
+2. Gateway valida credenciais no DemoUserStore (PBKDF2-SHA256, 100.000 iterações)
+   Usuários demo: merchant1/Demo@1234, merchant2/Demo@5678
+   (produção: substituir por IdP com OAuth2 + PKCE)
 3. Gateway emite JWT assinado (sub = merchantId UUID)
 4. Comerciante inclui JWT em todas as requisições: Authorization: Bearer <token>
-5. Gateway valida JWT antes de proxiar
-6. Serviço interno re-valida JWT (defense in depth)
+5. Gateway valida JWT + policy merchant-only ANTES de proxiar
+6. Serviço interno re-valida JWT + policy (defense in depth)
 7. MerchantId extraído do claim `sub` — isolamento de dados por tenant
 ```
 
@@ -39,8 +41,9 @@ Em produção, o endpoint `/api/auth/token` deve ser substituído por um Identit
 
 ## 3. Autorização
 
-- **Modelo**: Claims-based. Acesso autorizado para qualquer token JWT válido (autenticação é suficiente). Autorização por role (`merchant`) é planejada para fase 2.
-- **Isolamento de dados**: O `merchantId` é extraído do JWT (`sub` claim). Cada comerciante acessa **apenas seus próprios dados**. Nenhum endpoint aceita `merchantId` como parâmetro de query/body — é sempre extraído do token.
+- **Modelo**: RBAC baseado em claims. Policy `merchant-only` exige `role == "merchant"` em **todos** os endpoints protegidos (Gateway + serviços internos).
+- **Aplicação**: Gateway usa `RequireAuthorization("merchant-only")` no `MapReverseProxy`, bloqueando na borda qualquer token sem o claim correto. Serviços internos aplicam `[Authorize(Policy = "merchant-only")]` como segunda linha de defesa.
+- **Isolamento de dados**: O `merchantId` é extraído do JWT (`sub` claim). Cada comerciante acessa **apenas seus próprios dados**. Nenhum endpoint aceita `merchantId` como parâmetro de query/body.
 - **Princípio do menor privilégio**: A aplicação não executa queries com usuário `postgres`. Usa um usuário dedicado com permissões mínimas (SELECT, INSERT, UPDATE no schema necessário).
 
 ## 4. Proteção de APIs
@@ -97,7 +100,7 @@ Referrer-Policy: strict-origin-when-cross-origin
 
 ## 6. Comunicação Inter-Serviço
 
-- **Gateway → Services**: HTTP interno na rede Docker (`cashflow_default`). Em produção, serviços não devem expor portas diretamente (o docker-compose atual expõe para facilitar debugging — remover as seções `ports` dos serviços em produção).
+- **Gateway → Services**: HTTP interno na rede Docker (`cashflow_default`). Os serviços `Entries` e `Consolidated` **não expõem portas no host** — todo tráfego externo obrigatoriamente passa pelo Gateway (JWT + rate limiting no edge).
 - **Entries → RabbitMQ**: AMQP com autenticação (usuário dedicado `cashflow`, sem permissão de admin)
 - **Consolidated → Redis**: Redis configurado com senha (`requirepass`)
 - **Produção recomendada**: mTLS entre todos os serviços internos
@@ -112,7 +115,7 @@ Referrer-Policy: strict-origin-when-cross-origin
 | A04 Insecure Design | Clean Architecture. Validação em camada de Application antes de tocar domínio. |
 | A05 Security Misconfiguration | Swagger desabilitado em produção. Headers de segurança no gateway. CORS restrito. |
 | A06 Vulnerable Components | NuGet packages com versões específicas. Dependabot recomendado. |
-| A07 Auth Failures | JWT com expiração. ClockSkew zero. Validação de issuer, audience e assinatura. |
+| A07 Auth Failures | JWT com expiração. ClockSkew zero. Validação de issuer, audience e assinatura. Credenciais validadas via PBKDF2 no DemoUserStore. Policy `merchant-only` em todos os endpoints. |
 | A08 Integrity Failures | Imagens Docker com digest fixo em produção. HTTPS para pull de dependências. |
 | A09 Logging Failures | Serilog estruturado. Correlation ID. Nunca logar secrets. Seq centralizado. |
 | A10 SSRF | YARP com destinos fixos em configuração. Sem redirecionamentos baseados em input. |

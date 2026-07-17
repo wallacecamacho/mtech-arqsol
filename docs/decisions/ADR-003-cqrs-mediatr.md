@@ -1,7 +1,8 @@
 # ADR-003: CQRS com MediatR e Clean Architecture
 
 **Status:** Aceito
-**Data:** 2024-01-01
+**Data:** 2024-01-01  
+**Atualizado:** 2026-07-17 — Handler usa `IOutboxRepository` (ADR-006)
 **Decisores:** Time de Arquitetura
 **Depende de:** [ADR-001](ADR-001-microservices.md)
 
@@ -71,7 +72,7 @@ Result<T> → Controller traduz para HTTP response
 ## Consequências
 
 **Positivo:**
-- [OK] Handlers são unitários puro: testados com mocks de `IEntryRepository` e `IEventBus` sem HTTP
+- [OK] Handlers são unitários puro: testados com mocks de `IEntryRepository` e `IOutboxRepository` sem HTTP
 - [OK] `ValidationPipelineBehavior` é transversal: toda validação acontece antes do handler sem código duplicado
 - [OK] Adicionar logging ou auditoria = adicionar um novo `IPipelineBehavior`, sem tocar handlers
 - [OK] `Result<T>` elimina exceções para controle de fluxo (erros de validação retornam 400, não 500)

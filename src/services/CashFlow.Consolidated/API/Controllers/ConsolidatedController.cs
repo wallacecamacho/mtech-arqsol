@@ -8,7 +8,7 @@ namespace CashFlow.Consolidated.API.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
-[Authorize]
+[Authorize(Policy = "merchant-only")]
 public class ConsolidatedController : ControllerBase
 {
     private readonly IMediator _mediator;

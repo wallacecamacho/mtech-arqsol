@@ -42,9 +42,7 @@ docker compose up --build -d gateway
 
 | Serviço | Porta Host | Descrição |
 |---|---|---|
-| API Gateway | 8000 | Ponto de entrada principal |
-| Entries Service | 5001 | Direto (dev only) |
-| Consolidated Service | 5002 | Direto (dev only) |
+| API Gateway | 8000 | Ponto de entrada principal — única porta acessível externamente |
 | PostgreSQL | 5432 | Banco de dados |
 | RabbitMQ AMQP | 5672 | Mensageria |
 | RabbitMQ Management | 15672 | Painel web (cashflow/cashflow_pass — dev) |
@@ -52,17 +50,17 @@ docker compose up --build -d gateway
 | Seq | 8888 | Painel de logs |
 | Jaeger UI | 16686 | Painel de traces |
 
+> **Nota de segurança**: `Entries` (8080 interno) e `Consolidated` (8080 interno) não expõem portas no host. Todo tráfego externo passa obrigatoriamente pelo Gateway. Isso garante que JWT validation e rate limiting não podem ser contornados.
+
 ## 3. Health Checks
 
 ```bash
-# Gateway
+# Gateway (acesso externo)
 curl http://localhost:8000/health/live
 
-# Entries
-curl http://localhost:5001/health/ready
-
-# Consolidated
-curl http://localhost:5002/health/ready
+# Entries e Consolidated (acesso apenas interno — via docker exec ou rede interna)
+docker exec cashflow-entries-1 wget -qO- http://localhost:8080/health/ready
+docker exec cashflow-consolidated-1 wget -qO- http://localhost:8080/health/ready
 ```
 
 Resposta esperada (ready): `{"status":"Healthy","checks":[{"name":"postgres","status":"Healthy"},...]}` 
@@ -134,9 +132,9 @@ docker compose up -d consolidated
 
 ### RabbitMQ cai
 
-- **Impacto**: Entries não consegue publicar eventos. Lançamentos são persistidos no banco mas eventos não são publicados.
-- **Ação**: Após RabbitMQ se recuperar, MassTransit reconecta automaticamente.
-- **Reconciliação**: Se necessário, job de reconciliação pode re-publicar eventos baseado na tabela de entries.
+- **Impacto**: Entries não consegue publicar eventos. Lançamentos são persistidos no banco **e** na tabela `outbox_messages` (Outbox, ADR-006) mas eventos não chegam ao Consolidated.
+- **Ação**: Após RabbitMQ se recuperar, MassTransit reconecta automaticamente. O `OutboxProcessorBackgroundService` retoma o polling e publica todas as mensagens pendentes na próxima janela de 5s.
+- **Verificar**: `SELECT COUNT(*) FROM outbox_messages WHERE processed_at IS NULL;` — deve chegar a zero após reconexão.
 
 ### PostgreSQL cai
 
@@ -163,5 +161,62 @@ docker exec cashflow-postgres-1 pg_dump -U cashflow cashflow_consolidated > back
 | Entries indisponível | health/live retorna 5xx por > 30s | Reiniciar container. Verificar logs no Seq. |
 | Erro rate > 5% | Taxa de 5xx > 5% em 5 min | Verificar logs. Possível bug em deploy recente. |
 | DLQ com mensagens | Dead Letter Queue não vazia | Investigar consumer do Consolidated. |
+| Outbox com mensagens presas | `processed_at IS NULL` por > 5 min | Verificar conectividade com RabbitMQ. Ver logs do `OutboxProcessorBackgroundService`. |
+| Outbox com alto retry_count | `retry_count > 5` em alguma mensagem | Investigar `error` na linha. Possível incompatibilidade de tipo de evento. |
 | Memória Redis > 80% | Redis maxmemory quase atingido | Aumentar `maxmemory` ou adicionar instância. |
 | Lag do consumer RabbitMQ alto | Fila > 1000 mensagens | Escalar instâncias do Consolidated. |
+
+## 10. Monitoramento do Outbox
+
+O `OutboxProcessorBackgroundService` roda no processo do `Entries Service` e faz polling da tabela `outbox_messages` a cada 5 segundos. Logs emitidos no Seq com filtro `Service = 'CashFlow.Entries'` e `@Message` contendo `outbox`.
+
+### Comandos de diagnóstico
+
+```bash
+# Conectar ao banco de entries
+docker exec -it cashflow-postgres-1 psql -U cashflow cashflow_entries
+
+-- Mensagens pendentes (devem chegar a zero em condições normais)
+SELECT COUNT(*) FROM outbox_messages WHERE processed_at IS NULL;
+
+-- Mensagens com falhas de publicação
+SELECT id, event_type, retry_count, error, occurred_at
+FROM outbox_messages
+WHERE retry_count > 0
+ORDER BY occurred_at DESC
+LIMIT 20;
+
+-- Purge de mensagens processadas com mais de 30 dias
+DELETE FROM outbox_messages
+WHERE processed_at < NOW() - INTERVAL '30 days';
+```
+
+### Sintoma: Outbox não esvazia
+
+1. Verificar se o `Entries Service` está rodando: `docker compose ps entries`
+2. Verificar conectividade com RabbitMQ nos logs: `docker compose logs entries | grep -i outbox`
+3. Se RabbitMQ estiver offline: após recovery, o processor retoma automaticamente na próxima janela de 5s
+
+## 11. Pipeline de CI
+
+O projeto usa GitHub Actions (`.github/workflows/ci.yml`) com 3 jobs:
+
+| Job | Trigger | O que faz |
+|---|---|---|
+| `build` | push / PR em main, develop | `dotnet build` — falha rápida em erros de compilação |
+| `unit-tests` | após build | Testa projetos `*.UnitTests` (sem infra externa) |
+| `integration-tests` | após build (paralelo) | Testa projetos `*.IntegrationTests` (Testcontainers: Postgres + RabbitMQ) |
+
+### Executar localmente
+
+```bash
+# Todos os testes
+make test
+
+# Apenas unitários
+dotnet test CashFlow.sln --filter "FullyQualifiedName~UnitTests"
+
+# Load test de performance (requer k6 instalado e stack rodando)
+make load-test
+```
+

@@ -3,6 +3,7 @@ using CashFlow.Consolidated.Domain.Repositories;
 using CashFlow.Consolidated.Infrastructure.Persistence;
 using MassTransit;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
@@ -93,7 +94,12 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
         };
     });
 
-builder.Services.AddAuthorization();
+builder.Services.AddAuthorization(options =>
+{
+    options.AddPolicy("merchant-only", policy =>
+        policy.RequireAuthenticatedUser()
+              .RequireClaim("role", "merchant"));
+});
 
 // --- OpenTelemetry ---
 builder.Services.AddOpenTelemetry()

@@ -1,4 +1,4 @@
-.PHONY: up down build test logs clean
+.PHONY: up down build test load-test logs clean
 
 up:
 	@cp -n .env.example .env || true
@@ -12,6 +12,9 @@ build:
 
 test:
 	dotnet test CashFlow.sln --configuration Release --logger "console;verbosity=detailed"
+
+load-test:
+	k6 run tests/load/k6-load.js
 
 logs:
 	docker compose logs -f

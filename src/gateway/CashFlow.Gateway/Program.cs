@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.IdentityModel.Tokens;
@@ -42,7 +43,14 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
         };
     });
 
-builder.Services.AddAuthorization();
+builder.Services.AddAuthorization(options =>
+{
+    // Proxy routes require a valid token that carries role=merchant.
+    // The /api/auth/token and /health/* endpoints are exempt (AllowAnonymous).
+    options.AddPolicy("merchant-only", policy =>
+        policy.RequireAuthenticatedUser()
+              .RequireClaim("role", "merchant"));
+});
 
 // --- Rate Limiting: Token Bucket — 50 req/s, tolerance for peaks ---
 builder.Services.AddRateLimiter(options =>
@@ -139,7 +147,8 @@ app.Use(async (context, next) =>
 app.MapReverseProxy(proxyPipeline =>
 {
     proxyPipeline.UseRateLimiter();
-}).RequireRateLimiting("api-rate-limit");
+}).RequireRateLimiting("api-rate-limit")
+  .RequireAuthorization("merchant-only");
 
 // Token issuance endpoint (demo — in production use proper IdP)
 app.MapControllers();

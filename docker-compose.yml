@@ -89,8 +89,8 @@ services:
       Jwt__Audience: cashflow-services
       Seq__ServerUrl: http://seq:5341
       Otlp__Endpoint: http://jaeger:4317
-    ports:
-      - "5001:8080"
+    # Ports intentionally NOT exposed on the host — traffic must flow through the gateway.
+    # Exposing 5001/5002 would allow bypassing JWT validation and rate limiting.
     depends_on:
       postgres:
         condition: service_healthy
@@ -121,8 +121,7 @@ services:
       Jwt__Audience: cashflow-services
       Seq__ServerUrl: http://seq:5341
       Otlp__Endpoint: http://jaeger:4317
-    ports:
-      - "5002:8080"
+    # Ports intentionally NOT exposed on the host — traffic must flow through the gateway.
     depends_on:
       postgres:
         condition: service_healthy

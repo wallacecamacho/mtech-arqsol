@@ -10,7 +10,7 @@ namespace CashFlow.Entries.API.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
-[Authorize]
+[Authorize(Policy = "merchant-only")]
 public class EntriesController : ControllerBase
 {
     private readonly IMediator _mediator;
