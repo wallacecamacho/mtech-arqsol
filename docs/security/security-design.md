@@ -111,7 +111,7 @@ Referrer-Policy: strict-origin-when-cross-origin
 |---|---|
 | A01 Broken Access Control | MerchantId extraído do JWT, nunca do body. Cada query filtra por merchantId. |
 | A02 Cryptographic Failures | TLS em trânsito. Senha em variável de ambiente. JWT com HMAC-SHA256. |
-| A03 Injection | EF Core com parâmetros (sem SQL raw). FluentValidation nos inputs. |
+| A03 Injection | EF Core com parâmetros (sem SQL raw de entrada do usuário). `ApplyEntryAsync` usa `ExecuteSqlAsync(FormattableString)` — parâmetros tipados. FluentValidation nos inputs. |
 | A04 Insecure Design | Clean Architecture. Validação em camada de Application antes de tocar domínio. |
 | A05 Security Misconfiguration | Swagger desabilitado em produção. Headers de segurança no gateway. CORS restrito. |
 | A06 Vulnerable Components | NuGet packages com versões específicas. Dependabot recomendado. |

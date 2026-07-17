@@ -84,13 +84,17 @@ Acesse: http://localhost:16686
 - Serviço: `CashFlow.Entries`, `CashFlow.Consolidated`, `CashFlow.Gateway`
 - Rastreamento de toda a cadeia de uma requisição usando o Correlation ID
 
-### Métricas
+### Métricas (OpenTelemetry)
 
-> **Planejado (fase 2).** Métricas OpenTelemetry ainda não estão habilitadas nesta versão. Para ativar:
+Métricas OTEL estão habilitadas em `CashFlow.Entries` e `CashFlow.Consolidated` via `WithMetrics(AddAspNetCoreInstrumentation + AddRuntimeInstrumentation)`. As métricas são exportadas via OTLP para o mesmo endpoint de traces (Jaeger/Collector).
 
-1. Adicionar `OpenTelemetry.Exporter.Prometheus.AspNetCore` e `builder.Services.AddOpenTelemetry().WithMetrics(...)` em cada serviço
-2. Configurar scrape no `prometheus.yml`
-3. Importar dashboard Grafana ASP.NET Core
+Métricas exportadas por padrão:
+- `http.server.request.duration` (latência p50/p95/p99 por endpoint)
+- `http.server.active_requests` (requisições em andamento)
+- `process.runtime.dotnet.gc.*` (GC stats)
+- `process.runtime.dotnet.thread_pool.*` (thread pool stats)
+
+Para scraping Prometheus, adicionar `OpenTelemetry.Exporter.Prometheus.AspNetCore` e expor `/metrics`.
 
 ## 5. Escalabilidade
 
@@ -128,6 +132,7 @@ docker compose up -d consolidated
 - **Impacto no Entries**: **Nenhum.** Entries continua aceitando lançamentos normalmente.
 - **Impacto no usuário**: Consultas de saldo retornam erro até o serviço se recuperar.
 - **Recuperação automática**: MassTransit com retry policy (500ms, 1s, 2s, 5s). Após 4 tentativas, mensagem vai para Dead Letter Queue.
+- **Idempotência**: mesmo que a mensagem seja reprocessada após restart, a tabela `processed_events` no Consolidated impede duplicação de saldo.
 - **Ação**: `docker compose up -d consolidated`. Após subir, o consumer retoma processamento de mensagens pendentes. Mensagens na DLQ requerem redrive manual via RabbitMQ Management UI (http://localhost:15672 → fila `cashflow.consolidated.entry-created_error` → Move messages).
 
 ### RabbitMQ cai

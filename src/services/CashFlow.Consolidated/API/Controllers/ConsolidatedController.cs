@@ -66,4 +66,26 @@ public class ConsolidatedController : ControllerBase
         var sub = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirstValue("sub");
         return Guid.TryParse(sub, out var id) ? id : Guid.Empty;
     }
+
+    [HttpGet("history")]
+    [ProducesResponseType(typeof(IEnumerable<DailyBalanceDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> GetHistory(
+        [FromQuery] DateTime from,
+        [FromQuery] DateTime to,
+        CancellationToken cancellationToken)
+    {
+        var merchantId = GetMerchantId();
+        if (merchantId == Guid.Empty)
+            return Unauthorized();
+
+        var query  = new GetDailyBalanceRangeQuery(merchantId, from, to);
+        var result = await _mediator.Send(query, cancellationToken);
+
+        if (result.IsFailure)
+            return BadRequest(new { error = result.Error });
+
+        return Ok(result.Value);
+    }
 }

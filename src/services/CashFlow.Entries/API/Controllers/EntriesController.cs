@@ -49,17 +49,26 @@ public class EntriesController : ControllerBase
     }
 
     [HttpGet]
-    [ProducesResponseType(typeof(IEnumerable<EntryDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(PagedResult<EntryDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    public async Task<IActionResult> GetEntries([FromQuery] DateTime? date, CancellationToken cancellationToken)
+    public async Task<IActionResult> GetEntries(
+        [FromQuery] DateTime? date,
+        [FromQuery] int page     = 1,
+        [FromQuery] int pageSize = 50,
+        CancellationToken cancellationToken = default)
     {
         var merchantId = GetMerchantId();
         if (merchantId == Guid.Empty)
             return Unauthorized();
 
         var queryDate = date?.Date ?? DateTime.UtcNow.Date;
-        var query = new GetEntriesByDateQuery(merchantId, queryDate);
+        var query  = new GetEntriesByDateQuery(merchantId, queryDate, page, pageSize);
         var result = await _mediator.Send(query, cancellationToken);
+
+        Response.Headers.Append("X-Total-Count", result.Value.TotalCount.ToString());
+        Response.Headers.Append("X-Total-Pages", result.Value.TotalPages.ToString());
+        Response.Headers.Append("X-Page",        result.Value.Page.ToString());
+        Response.Headers.Append("X-Page-Size",   result.Value.PageSize.ToString());
 
         return Ok(result.Value);
     }

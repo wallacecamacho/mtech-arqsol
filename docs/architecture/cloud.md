@@ -10,7 +10,7 @@
 
 ```mermaid
 flowchart TB
-    USER(["👤 Comerciante"])
+    USER(["Comerciante"])
 
     subgraph EDGE["Edge"]
         R53["Route 53"]
@@ -60,8 +60,8 @@ flowchart TB
 
 ```mermaid
 flowchart TB
-    subgraph INTERNET["☁️ Internet"]
-        USER["🧑‍💼 Comerciante\n(Browser / App)"]
+    subgraph INTERNET["Internet"]
+        USER["Comerciante\n(Browser / App)"]
     end
 
     subgraph AWS["AWS Cloud — Region us-east-1"]
@@ -282,7 +282,7 @@ flowchart LR
 
     PR -->|"merge"| MAIN
     MAIN --> SRC --> BUILD --> IMG --> DEP_STG --> SMOKE
-    SMOKE -->|"✅ passed"| DEP_PRD
+    SMOKE -->|"passed"| DEP_PRD
     DEP_STG --> STAGING
     DEP_PRD --> PROD
 ```
@@ -422,3 +422,32 @@ flowchart LR
 - [ ] Runbook de DLQ revisado (ver [runbook.md](../operations/runbook.md))
 - [ ] Smoke tests após cada deploy (Blue/Green)
 - [ ] Tags em todos os recursos: `Project=CashFlow`, `Env=prod`, `ManagedBy=terraform`
+
+---
+
+## 10. Evidência de RNF — Load Test em AWS
+
+Executar os cenários k6 contra o ALB após deploy:
+
+```bash
+# 1. Configurar target AWS
+export BASE_URL=https://api.cashflow.example.com   # ALB DNS / Route 53 alias
+
+# 2. Smoke (sanidade rápida)
+k6 run -e BASE_URL=$BASE_URL -e SCENARIO=smoke tests/load/k6-scenarios.js
+
+# 3. Load (evidência RNF)
+k6 run -e BASE_URL=$BASE_URL -e SCENARIO=load \
+       --summary-export=tests/load/results/aws-load-$(date +%Y%m%d).json \
+       tests/load/k6-scenarios.js
+```
+
+### Thresholds esperados
+
+| Threshold | Valor esperado em AWS (ECS Fargate + ALB) |
+|---|---|
+| `http_req_failed < 0.05` | ~0.1% (ALB health checks filtram instâncias doentes) |
+| `http_req_duration p(95) < 500ms` | ~120 ms (NIC Fargate + ElastiCache < 1ms) |
+| Throughput sustentado | ~80 req/s com 2 tasks por serviço |
+
+Relatório completo: [`docs/operations/rnf-throughput-evidence.md`](../operations/rnf-throughput-evidence.md)

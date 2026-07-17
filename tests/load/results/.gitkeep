@@ -1,0 +1,3 @@
+# Este diretório recebe os relatórios gerados pelo k6 em tempo de execução.
+# Os arquivos *.json e *.html são gerados automaticamente e ignorados pelo git.
+# Apenas baseline-reference.json (resultado de referência) é versionado.

@@ -6,6 +6,7 @@ namespace CashFlow.Consolidated.Infrastructure.Persistence;
 public class ConsolidatedDbContext : DbContext
 {
     public DbSet<DailyBalance> DailyBalances => Set<DailyBalance>();
+    public DbSet<ProcessedEvent> ProcessedEvents => Set<ProcessedEvent>();
 
     public ConsolidatedDbContext(DbContextOptions<ConsolidatedDbContext> options) : base(options) { }
 
@@ -27,6 +28,14 @@ public class ConsolidatedDbContext : DbContext
             entity.HasIndex(e => new { e.MerchantId, e.Date })
                 .IsUnique()
                 .HasDatabaseName("idx_daily_balances_merchant_date_unique");
+        });
+
+        modelBuilder.Entity<ProcessedEvent>(entity =>
+        {
+            entity.ToTable("processed_events");
+            entity.HasKey(e => e.EntryId);
+            entity.Property(e => e.EntryId).HasColumnName("entry_id");
+            entity.Property(e => e.ProcessedAt).HasColumnName("processed_at");
         });
     }
 }

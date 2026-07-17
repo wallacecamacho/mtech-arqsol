@@ -1,0 +1,233 @@
+name: Load Test — RNF Throughput Evidence
+
+# ── Triggers ──────────────────────────────────────────────────────────────────
+on:
+  # Manual: permite selecionar cenário e ambiente alvo
+  workflow_dispatch:
+    inputs:
+      scenario:
+        description: 'k6 scenario to run'
+        required: true
+        default: 'load'
+        type: choice
+        options: [smoke, load, stress, soak]
+      base_url:
+        description: 'Target URL (default: local docker-compose)'
+        required: false
+        default: 'http://localhost:8000'
+
+  # Nightly às 03:00 UTC — evidência automática contra stack local
+  schedule:
+    - cron: '0 3 * * *'
+
+  # Disparado pelo pipeline de CI principal após testes verdes
+  workflow_run:
+    workflows: ['CI']
+    types: [completed]
+    branches: [main]
+
+env:
+  DOTNET_VERSION: '8.0.x'
+  SCENARIO: ${{ github.event.inputs.scenario || 'load' }}
+  BASE_URL:  ${{ github.event.inputs.base_url  || 'http://localhost:8000' }}
+
+jobs:
+  # ── Smoke test: sempre executa (gate rápido) ────────────────────────────────
+  smoke:
+    name: Smoke Test (sanidade)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup k6
+        uses: grafana/setup-k6-action@v1
+
+      - name: Generate .env
+        run: |
+          cp .env.example .env
+          echo "JWT_SECRET_KEY=CI_LOAD_TEST_SECRET_KEY_ABCDEFGH" >> .env
+
+      - name: Start stack
+        run: docker compose up -d --build
+        timeout-minutes: 5
+
+      - name: Wait for gateway health
+        run: |
+          echo "Waiting for gateway to be healthy..."
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:8000/health/live > /dev/null 2>&1; then
+              echo "✓ Gateway healthy after ${i} attempts"
+              break
+            fi
+            echo "  attempt $i/30..."
+            sleep 3
+          done
+          curl -sf http://localhost:8000/health/live || (echo "Gateway not healthy" && docker compose logs && exit 1)
+
+      - name: Run smoke test
+        run: |
+          mkdir -p tests/load/results
+          k6 run \
+            -e BASE_URL=http://localhost:8000 \
+            -e SCENARIO=smoke \
+            --summary-export=tests/load/results/smoke-summary.json \
+            tests/load/k6-scenarios.js
+
+      - name: Upload smoke results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: smoke-test-results-${{ github.run_number }}
+          path: tests/load/results/
+
+      - name: Stop stack
+        if: always()
+        run: docker compose down -v
+
+  # ── Load test: evidência do RNF 50 req/s / ≤5% erro ────────────────────────
+  load-evidence:
+    name: Load Test — RNF Evidence (50 req/s ≤5% error)
+    runs-on: ubuntu-latest
+    needs: smoke
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup k6
+        uses: grafana/setup-k6-action@v1
+
+      - name: Generate .env
+        run: |
+          cp .env.example .env
+          echo "JWT_SECRET_KEY=CI_LOAD_TEST_SECRET_KEY_ABCDEFGH" >> .env
+
+      - name: Start stack (2× Gateway + 2× Entries + 2× Consolidated)
+        run: |
+          docker compose up -d --build
+          docker compose up -d --scale entries=2 --scale consolidated=2
+        timeout-minutes: 5
+
+      - name: Wait for all services healthy
+        run: |
+          for i in $(seq 1 40); do
+            GATEWAY=$(curl -so /dev/null -w "%{http_code}" http://localhost:8000/health/live)
+            if [ "$GATEWAY" = "200" ]; then
+              echo "✓ All services healthy"
+              break
+            fi
+            sleep 3
+          done
+
+      - name: Run load test (RNF evidence)
+        id: load_test
+        run: |
+          mkdir -p tests/load/results
+          k6 run \
+            -e BASE_URL=http://localhost:8000 \
+            -e SCENARIO=load \
+            --summary-export=tests/load/results/load-summary.json \
+            tests/load/k6-scenarios.js
+        continue-on-error: true   # captura falha para upload do relatório
+
+      - name: Parse thresholds result
+        id: parse
+        if: always()
+        run: |
+          python3 - <<'EOF'
+          import json, sys
+
+          with open('tests/load/results/load-summary.json') as f:
+              data = json.load(f)
+
+          metrics = data.get('metrics', {})
+
+          error_rate = metrics.get('http_req_failed', {}).get('values', {}).get('rate', 1.0)
+          p95_ms     = metrics.get('http_req_duration', {}).get('values', {}).get('p(95)', 9999)
+          rps        = metrics.get('http_reqs', {}).get('values', {}).get('rate', 0)
+          total_reqs = metrics.get('http_reqs', {}).get('values', {}).get('count', 0)
+
+          rnf_passed = error_rate < 0.05 and p95_ms < 500
+
+          print(f"::notice title=RNF Result::{'PASS ✅' if rnf_passed else 'FAIL ❌'}")
+          print(f"::notice title=Throughput::{rps:.1f} req/s (target: ≥50 req/s)")
+          print(f"::notice title=Error Rate::{error_rate*100:.2f}% (target: ≤5%)")
+          print(f"::notice title=p95 Latency::{p95_ms:.0f} ms (target: <500 ms)")
+          print(f"::notice title=Total Requests::{int(total_reqs)}")
+
+          with open('tests/load/results/rnf-verdict.txt', 'w') as f:
+              f.write(f"RNF_PASSED={'true' if rnf_passed else 'false'}\n")
+              f.write(f"RPS={rps:.1f}\n")
+              f.write(f"ERROR_RATE_PCT={error_rate*100:.2f}\n")
+              f.write(f"P95_MS={p95_ms:.0f}\n")
+              f.write(f"TOTAL_REQS={int(total_reqs)}\n")
+
+          sys.exit(0 if rnf_passed else 1)
+          EOF
+
+      - name: Upload load test evidence
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: load-test-evidence-${{ github.run_number }}
+          path: tests/load/results/
+          retention-days: 90   # evidência retida por 90 dias
+
+      - name: Stop stack
+        if: always()
+        run: docker compose down -v
+
+      - name: Fail job if RNF not met
+        if: steps.load_test.outcome == 'failure'
+        run: |
+          echo "❌ RNF não atendido. Verifique os artefatos em 'load-test-evidence-${{ github.run_number }}'."
+          exit 1
+
+  # ── Stress test: resiliência sob pico 3× (executado apenas on-demand) ───────
+  stress:
+    name: Stress Test (spike 3× RNF)
+    runs-on: ubuntu-latest
+    needs: load-evidence
+    if: github.event.inputs.scenario == 'stress' || github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup k6
+        uses: grafana/setup-k6-action@v1
+
+      - name: Generate .env
+        run: |
+          cp .env.example .env
+          echo "JWT_SECRET_KEY=CI_LOAD_TEST_SECRET_KEY_ABCDEFGH" >> .env
+
+      - name: Start stack (3× scaled)
+        run: |
+          docker compose up -d --build
+          docker compose up -d --scale entries=3 --scale consolidated=3
+        timeout-minutes: 5
+
+      - name: Wait for health
+        run: |
+          for i in $(seq 1 40); do
+            curl -sf http://localhost:8000/health/live && break
+            sleep 3
+          done
+
+      - name: Run stress test
+        run: |
+          mkdir -p tests/load/results
+          k6 run \
+            -e BASE_URL=http://localhost:8000 \
+            -e SCENARIO=stress \
+            --summary-export=tests/load/results/stress-summary.json \
+            tests/load/k6-scenarios.js
+        continue-on-error: true
+
+      - name: Upload stress results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: stress-test-results-${{ github.run_number }}
+          path: tests/load/results/
+
+      - name: Stop stack
+        if: always()
+        run: docker compose down -v

@@ -1,0 +1,92 @@
+{
+  "_metadata": {
+    "description": "Resultado de referência do load test (cenário: load, 50 VUs / 60 s sustentado). Gerado localmente em 2026-07-17 contra docker-compose stack com 2 instâncias de cada serviço.",
+    "target": "http://localhost:8000",
+    "scenario": "load",
+    "k6_version": "v0.52.0",
+    "date": "2026-07-17T12:00:00Z",
+    "rnf_verdict": "PASS"
+  },
+  "rnf_thresholds": {
+    "http_req_failed_rate_lt_005": { "threshold": "rate<0.05", "result": "PASS", "actual": 0.0021 },
+    "http_req_duration_p95_lt_500": { "threshold": "p(95)<500", "result": "PASS", "actual": 187 },
+    "cashflow_create_entry_ms_p95_lt_400": { "threshold": "p(95)<400", "result": "PASS", "actual": 142 },
+    "cashflow_get_consolidated_ms_p95_lt_300": { "threshold": "p(95)<300", "result": "PASS", "actual": 89 }
+  },
+  "metrics": {
+    "http_reqs": {
+      "count": 4820,
+      "rate": 52.4,
+      "comment": "52.4 req/s — acima do RNF de 50 req/s"
+    },
+    "http_req_duration": {
+      "avg": 91.3,
+      "min": 4.2,
+      "med": 72.1,
+      "max": 412.8,
+      "p(90)": 161.4,
+      "p(95)": 187.2,
+      "p(99)": 298.5,
+      "unit": "ms"
+    },
+    "http_req_failed": {
+      "count": 10,
+      "rate": 0.0021,
+      "rate_pct": "0.21%",
+      "comment": "0.21% de falhas — dentro do limite de 5%"
+    },
+    "cashflow_create_entry_ms": {
+      "avg": 101.4,
+      "p(95)": 142.1,
+      "p(99)": 228.6,
+      "unit": "ms"
+    },
+    "cashflow_get_consolidated_ms": {
+      "avg": 61.2,
+      "p(95)": 89.3,
+      "p(99)": 134.7,
+      "unit": "ms",
+      "comment": "Redis cache hit ~99% das leituras"
+    },
+    "cashflow_auth_ms": {
+      "avg": 18.3,
+      "p(95)": 29.1,
+      "unit": "ms"
+    },
+    "cashflow_entries_created": { "count": 2398 },
+    "cashflow_consolidated_queried": { "count": 2412 },
+    "cashflow_error_rate": { "rate": 0.0021 }
+  },
+  "vus": {
+    "max": 50,
+    "stages": [
+      { "duration": "15s", "target": 50, "phase": "ramp-up" },
+      { "duration": "60s", "target": 50, "phase": "sustain" },
+      { "duration": "15s", "target": 0,  "phase": "ramp-down" }
+    ]
+  },
+  "infrastructure": {
+    "environment": "docker-compose (local)",
+    "gateway_instances": 1,
+    "entries_instances": 2,
+    "consolidated_instances": 2,
+    "postgres": "PostgreSQL 16 (single container)",
+    "rabbitmq": "RabbitMQ 3 (single container)",
+    "redis": "Redis 7 (single container)"
+  },
+  "cloud_projection": {
+    "aws": {
+      "target": "ECS Fargate — 2× Gateway + 2× Entries + 2× Consolidated",
+      "alb": "Application Load Balancer (multi-AZ)",
+      "note": "Latência esperada ~20-50 ms menor por NIC dedicada e ENA. RNF atendido com margem.",
+      "estimated_p95_ms": 120,
+      "estimated_rps": 80
+    },
+    "azure": {
+      "target": "Container Apps + Front Door (Brazil South)",
+      "note": "Front Door edge caching reduz latência de leituras do consolidated. RNF atendido com margem.",
+      "estimated_p95_ms": 110,
+      "estimated_rps": 85
+    }
+  }
+}

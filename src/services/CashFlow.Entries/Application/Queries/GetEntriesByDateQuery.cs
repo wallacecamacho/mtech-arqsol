@@ -15,20 +15,32 @@ public record EntryDto(
     DateTime CreatedAt
 );
 
-public record GetEntriesByDateQuery(Guid MerchantId, DateTime Date) : IRequest<Result<IEnumerable<EntryDto>>>;
-
-public class GetEntriesByDateQueryHandler : IRequestHandler<GetEntriesByDateQuery, Result<IEnumerable<EntryDto>>>
+public record PagedResult<T>(IEnumerable<T> Items, int TotalCount, int Page, int PageSize)
 {
+    public int TotalPages => (int)Math.Ceiling(TotalCount / (double)PageSize);
+}
+
+public record GetEntriesByDateQuery(
+    Guid MerchantId,
+    DateTime Date,
+    int Page     = 1,
+    int PageSize = 50
+) : IRequest<Result<PagedResult<EntryDto>>>;
+
+public class GetEntriesByDateQueryHandler : IRequestHandler<GetEntriesByDateQuery, Result<PagedResult<EntryDto>>>
+{
+    private const int MaxPageSize = 100;
     private readonly IEntryRepository _repository;
 
-    public GetEntriesByDateQueryHandler(IEntryRepository repository)
-    {
-        _repository = repository;
-    }
+    public GetEntriesByDateQueryHandler(IEntryRepository repository) => _repository = repository;
 
-    public async Task<Result<IEnumerable<EntryDto>>> Handle(GetEntriesByDateQuery request, CancellationToken cancellationToken)
+    public async Task<Result<PagedResult<EntryDto>>> Handle(GetEntriesByDateQuery request, CancellationToken cancellationToken)
     {
-        var entries = await _repository.GetByDateAsync(request.MerchantId, request.Date, cancellationToken);
+        var page     = Math.Max(1, request.Page);
+        var pageSize = Math.Clamp(request.PageSize, 1, MaxPageSize);
+
+        var (entries, total) = await _repository.GetByDatePagedAsync(
+            request.MerchantId, request.Date, page, pageSize, cancellationToken);
 
         var dtos = entries.Select(e => new EntryDto(
             e.Id,
@@ -39,6 +51,6 @@ public class GetEntriesByDateQueryHandler : IRequestHandler<GetEntriesByDateQuer
             e.EntryDate,
             e.CreatedAt));
 
-        return Result.Success(dtos);
+        return Result.Success(new PagedResult<EntryDto>(dtos, total, page, pageSize));
     }
 }

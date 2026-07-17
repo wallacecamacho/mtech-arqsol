@@ -31,4 +31,25 @@ public class DailyBalanceRepository : IDailyBalanceRepository
 
     public async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
         => await _context.SaveChangesAsync(cancellationToken);
+
+    public async Task ApplyEntryAsync(
+        Guid merchantId, DateTime date, decimal credits, decimal debits,
+        string currency, CancellationToken cancellationToken = default)
+    {
+        var id = Guid.NewGuid();
+        var d  = date.Date;
+        // Single atomic statement: insert new row or increment existing totals.
+        // FormattableString creates parameterized SQL — no SQL injection risk.
+        await _context.Database.ExecuteSqlAsync(
+            $"""
+            INSERT INTO daily_balances
+                (id, merchant_id, date, total_credits, total_debits, currency, created_at, updated_at)
+            VALUES
+                ({id}, {merchantId}, {d}, {credits}, {debits}, {currency}, NOW(), NOW())
+            ON CONFLICT (merchant_id, date) DO UPDATE SET
+                total_credits = daily_balances.total_credits + {credits},
+                total_debits  = daily_balances.total_debits  + {debits},
+                updated_at    = NOW()
+            """, cancellationToken);
+    }
 }

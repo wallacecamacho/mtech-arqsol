@@ -12,6 +12,7 @@ public class OutboxProcessorBackgroundService : BackgroundService
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<OutboxProcessorBackgroundService> _logger;
     private static readonly TimeSpan PollingInterval = TimeSpan.FromSeconds(5);
+    private const int MaxRetries = 10;
 
     public OutboxProcessorBackgroundService(
         IServiceScopeFactory scopeFactory,
@@ -60,12 +61,16 @@ public class OutboxProcessorBackgroundService : BackgroundService
         var eventBus = scope.ServiceProvider.GetRequiredService<IEventBus>();
 
         var pending = await dbContext.OutboxMessages
-            .Where(m => m.ProcessedAt == null)
+            .Where(m => m.ProcessedAt == null && m.RetryCount < MaxRetries)
             .OrderBy(m => m.OccurredAt)
             .Take(50)
             .ToListAsync(ct);
 
-        if (pending.Count == 0) return;
+        if (pending.Count == 0)
+        {
+            await DeadLetterExceededMessagesAsync(dbContext, ct);
+            return;
+        }
 
         _logger.LogInformation("Processing {Count} outbox message(s).", pending.Count);
 
@@ -86,6 +91,10 @@ public class OutboxProcessorBackgroundService : BackgroundService
         }
 
         await dbContext.SaveChangesAsync(ct);
+
+        // Always sweep dead-letter messages, not only when the active queue is empty.
+        // Without this, a continuous stream of new messages would starve the dead-letter check.
+        await DeadLetterExceededMessagesAsync(dbContext, ct);
     }
 
     private static async Task PublishMessageAsync(OutboxMessage message, IEventBus eventBus, CancellationToken ct)
@@ -100,5 +109,26 @@ public class OutboxProcessorBackgroundService : BackgroundService
             default:
                 throw new InvalidOperationException($"Unknown outbox event type: '{message.EventType}'.");
         }
+    }
+
+    /// <summary>Marks messages that exceeded MaxRetries as dead-lettered so they no longer block polling.</summary>
+    private async Task DeadLetterExceededMessagesAsync(EntriesDbContext dbContext, CancellationToken ct)
+    {
+        var deadMessages = await dbContext.OutboxMessages
+            .Where(m => m.ProcessedAt == null && m.RetryCount >= MaxRetries)
+            .ToListAsync(ct);
+
+        if (deadMessages.Count == 0) return;
+
+        foreach (var msg in deadMessages)
+        {
+            msg.ProcessedAt = DateTime.UtcNow;
+            msg.Error = $"DEAD_LETTER: exceeded {MaxRetries} retries. Last error: {msg.Error}";
+            _logger.LogError(
+                "Outbox message {Id} (EventType={EventType}) dead-lettered after {Retries} retries.",
+                msg.Id, msg.EventType, msg.RetryCount);
+        }
+
+        await dbContext.SaveChangesAsync(ct);
     }
 }

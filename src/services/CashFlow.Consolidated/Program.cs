@@ -9,6 +9,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using OpenTelemetry.Resources;
+using OpenTelemetry.Metrics;
 using OpenTelemetry.Trace;
 using Serilog;
 using System.Reflection;
@@ -34,6 +35,7 @@ builder.Services.AddDbContext<ConsolidatedDbContext>(options =>
 
 // --- Repositories ---
 builder.Services.AddScoped<IDailyBalanceRepository, DailyBalanceRepository>();
+builder.Services.AddScoped<IProcessedEventRepository, ProcessedEventRepository>();
 
 // --- MediatR ---
 builder.Services.AddMediatR(cfg => cfg.RegisterServicesFromAssembly(Assembly.GetExecutingAssembly()));
@@ -113,6 +115,17 @@ builder.Services.AddOpenTelemetry()
             {
                 otlp.Endpoint = new Uri(builder.Configuration["Otlp:Endpoint"] ?? "http://jaeger:4317");
             });
+    })
+    .WithMetrics(metrics =>
+    {
+        metrics
+            .SetResourceBuilder(ResourceBuilder.CreateDefault().AddService("CashFlow.Consolidated"))
+            .AddAspNetCoreInstrumentation()
+            .AddRuntimeInstrumentation()
+            .AddOtlpExporter(otlp =>
+            {
+                otlp.Endpoint = new Uri(builder.Configuration["Otlp:Endpoint"] ?? "http://jaeger:4317");
+            });
     });
 
 // --- Health Checks ---
@@ -156,7 +169,7 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
-app.UseHttpsRedirection();
+// HTTPS termination happens at the gateway/load balancer; services run plain HTTP internally.
 app.UseAuthentication();
 app.UseAuthorization();
 

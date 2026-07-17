@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+    <RootNamespace>CashFlow.E2E.Tests</RootNamespace>
+  </PropertyGroup>
+
+  <!--
+    Both services declare 'Program' in the global namespace.
+    Assembly aliases prevent the ambiguity at compile time.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\services\CashFlow.Entries\CashFlow.Entries.csproj"
+                      Aliases="EntriesApp" />
+    <ProjectReference Include="..\..\src\services\CashFlow.Consolidated\CashFlow.Consolidated.csproj"
+                      Aliases="ConsolidatedApp" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="xunit" Version="2.9.0" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    <PackageReference Include="FluentAssertions" Version="6.12.1" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="8.0.8" />
+    <PackageReference Include="Microsoft.IdentityModel.Tokens" Version="7.6.3" />
+    <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="7.6.3" />
+    <PackageReference Include="Testcontainers.PostgreSql" Version="3.10.0" />
+    <PackageReference Include="Testcontainers.RabbitMq" Version="3.10.0" />
+    <PackageReference Include="Testcontainers.Redis" Version="3.10.0" />
+  </ItemGroup>
+</Project>

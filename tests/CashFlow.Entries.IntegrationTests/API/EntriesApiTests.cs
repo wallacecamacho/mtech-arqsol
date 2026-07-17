@@ -71,16 +71,30 @@ public class EntriesApiTests : IClassFixture<EntriesWebApplicationFactory>
         response.StatusCode.Should().Be(HttpStatusCode.OK);
     }
 
-    private static string GenerateTestToken(Guid merchantId)
+    private static string GenerateTestToken(Guid merchantId, string role = "merchant")
     {
         var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes("INTEGRATION_TEST_KEY_ABCDEFGHIJKLMNOP"));
         var credentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
         var claims = new[]
         {
             new Claim(JwtRegisteredClaimNames.Sub, merchantId.ToString()),
-            new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString())
+            new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
+            new Claim("role", role)
         };
         var token = new JwtSecurityToken("cashflow-gateway", "cashflow-services", claims, expires: DateTime.UtcNow.AddHours(1), signingCredentials: credentials);
         return new JwtSecurityTokenHandler().WriteToken(token);
+    }
+
+    [Fact]
+    public async Task POST_Entries_WithWrongRole_ShouldReturn403()
+    {
+        var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
+            "Bearer", GenerateTestToken(Guid.NewGuid(), role: "admin"));
+
+        var payload = new { amount = 100.0, currency = "BRL", type = 1, description = "test", entryDate = DateTime.UtcNow.Date };
+        var response = await client.PostAsJsonAsync("/api/entries", payload);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
     }
 }

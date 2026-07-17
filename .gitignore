@@ -78,3 +78,10 @@ desktop.ini
 logs/
 tmp/
 temp/
+
+# ── k6 load test results (gerados em runtime — não versionar) ─────────────────
+tests/load/results/*.json
+tests/load/results/*.html
+# Mas preserva o baseline de referência e o .gitkeep:
+!tests/load/results/baseline-reference.json
+!tests/load/results/.gitkeep

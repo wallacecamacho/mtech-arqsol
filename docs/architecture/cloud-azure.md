@@ -9,7 +9,7 @@
 
 ```mermaid
 flowchart TB
-    USER(["👤 Comerciante"])
+    USER(["Comerciante"])
 
     subgraph EDGE["Edge"]
         DNS["Azure DNS"]
@@ -172,7 +172,7 @@ flowchart LR
 
     PR -->|"merge"| MAIN
     MAIN --> SRC --> BUILD --> IMG --> DEP_STG --> SMOKE
-    SMOKE -->|"✅ passed"| APPROVAL --> DEP_PRD
+    SMOKE -->|"passed"| APPROVAL --> DEP_PRD
     DEP_STG --> STAGING
     DEP_PRD --> PROD
 ```
@@ -293,7 +293,7 @@ flowchart LR
 | Key Vault | 5 secrets + operations | ~$2 |
 | **Total estimado** | | **~$1.025–$1.080/mês** |
 
-> ⚠️ **Service Bus Premium** é o maior custo (MU dedicada). Para cargas menores, **Service Bus Standard** (~$10/mês) é suficiente, perdendo geo-DR e private endpoints.  
+> ~ **Service Bus Premium** é o maior custo (MU dedicada). Para cargas menores, **Service Bus Standard** (~$10/mês) é suficiente, perdendo geo-DR e private endpoints.  
 > Com Reserved Instances em PostgreSQL + Redis (1 ano): ~20% de desconto → **~$870–$930/mês** (Premium) ou **~$310–$360/mês** com Service Bus Standard.
 
 ---
@@ -312,3 +312,46 @@ flowchart LR
 - [ ] Azure Defender for Containers habilitado
 - [ ] Budget Alert configurado (> R$6.000/mês)
 - [ ] Tags em todos os recursos: `Project=CashFlow`, `Env=prod`, `ManagedBy=terraform`
+
+---
+
+## 10. Evidência de RNF — Load Test em Azure
+
+Duas opções para validar o RNF em Azure:
+
+### Opção A: k6 local contra Front Door
+
+```bash
+# Configurar target Azure
+export BASE_URL=https://cashflow-fd-<hash>.azurefd.net
+
+# Smoke
+k6 run -e BASE_URL=$BASE_URL -e SCENARIO=smoke tests/load/k6-scenarios.js
+
+# Load (evidência RNF)
+k6 run -e BASE_URL=$BASE_URL -e SCENARIO=load \
+       --summary-export=tests/load/results/azure-load-$(date +%Y%m%d).json \
+       tests/load/k6-scenarios.js
+```
+
+### Opção B: Azure Load Testing (nativo, integrado ao CI/CD)
+
+```bash
+az load test run \
+  --resource-group rg-cashflow-prod \
+  --name cashflow-load-test \
+  --test-id rnf-50rps \
+  --load-test-config-file tests/load/cloud/azure-load-test.yaml
+```
+
+### Thresholds esperados
+
+| Threshold | Valor esperado em Azure (Container Apps + Front Door) |
+|---|---|
+| `http_req_failed < 0.05` | ~0.05% (Front Door health probes removem instâncias ruins) |
+| `http_req_duration p(95) < 500ms` | ~110 ms (Front Door POP edge; Redis TLS ~1ms) |
+| Throughput sustentado | ~85 req/s com min 2 réplicas por app |
+
+Front Door caching beneficia especialmente o `/api/consolidated/{date}` para datas históricas (TTL 24h → hit rate >99%).
+
+Relatório completo: [`docs/operations/rnf-throughput-evidence.md`](../operations/rnf-throughput-evidence.md)
