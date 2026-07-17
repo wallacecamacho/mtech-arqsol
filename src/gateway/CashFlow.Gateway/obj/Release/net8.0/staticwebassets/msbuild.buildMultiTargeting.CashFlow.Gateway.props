@@ -1,3 +1,0 @@
-﻿<Project>
-  <Import Project="../build/CashFlow.Gateway.props" />
-</Project>

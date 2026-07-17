@@ -1,3 +1,0 @@
-﻿<Project>
-  <Import Project="../buildMultiTargeting/CashFlow.Gateway.props" />
-</Project>

@@ -1,5 +1,0 @@
-{
-  "CashFlow.Entries, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null": "\/home\/desenv\/dev\/mtech\/src\/services\/CashFlow.Entries",
-  "CashFlow.EventBus, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null": "\/home\/desenv\/dev\/mtech\/src\/shared\/CashFlow.EventBus",
-  "CashFlow.SharedKernel, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null": "\/home\/desenv\/dev\/mtech\/src\/shared\/CashFlow.SharedKernel"
-}
